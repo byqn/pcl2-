@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.8.1
+// PCL 下载恢复工具 v1.8.2
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -854,6 +854,38 @@ namespace PclDownloadRestore
             helpBox.Text = BuildHelpText();
             helpTab.Controls.Add(helpBox);
 
+            var aboutTab = new TabPage("关于");
+            tabs.TabPages.Add(aboutTab);
+
+            var aboutLabel = new Label();
+            aboutLabel.Text = "PCL 下载恢复工具（第三方扩展）\r\n\r\n" +
+                              "Plain Craft Launcher (PCL) 原作者：龙腾猫跃\r\n" +
+                              "上游仓库：https://github.com/Meloong-Git/PCL\r\n\r\n" +
+                              "本项目由 byqn 独立开发，不是 PCL 官方插件，也不由 PCL 官方提供或背书。\r\n" +
+                              "不包含启动器本体、不提供盗版授权、不绕过正版验证。\r\n\r\n" +
+                              "如果 PCL 帮到了你，欢迎点下面的按钮支持原作者。";
+            aboutLabel.SetBounds(24, 24, 780, 150);
+            aboutTab.Controls.Add(aboutLabel);
+
+            var supportBtn = new Button();
+            supportBtn.Text = "支持 PCL 作者 龙腾猫跃";
+            supportBtn.SetBounds(24, 190, 240, 42);
+            aboutTab.Controls.Add(supportBtn);
+            supportBtn.Click += delegate { OpenUrl("https://meloong.com/afd/a/LTCat"); };
+
+            var repoBtn = new Button();
+            repoBtn.Text = "打开本项目仓库";
+            repoBtn.SetBounds(280, 190, 200, 42);
+            aboutTab.Controls.Add(repoBtn);
+            repoBtn.Click += delegate { OpenUrl("https://github.com/byqn/pcl2-"); };
+
+            var upstreamBtn = new Button();
+            upstreamBtn.Text = "打开 PCL 上游仓库";
+            upstreamBtn.SetBounds(496, 190, 200, 42);
+            aboutTab.Controls.Add(upstreamBtn);
+            upstreamBtn.Click += delegate { OpenUrl("https://github.com/Meloong-Git/PCL"); };
+
+
             var loaderTypeLabel = new Label();
             loaderTypeLabel.Text = "类型";
             loaderTypeLabel.SetBounds(16, 18, 40, 22);
@@ -1004,7 +1036,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.8.1）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.8.2）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1060,6 +1092,11 @@ namespace PclDownloadRestore
             get { return Path.Combine(Application.StartupPath, "PCLDownloadRestore.ini"); }
         }
 
+        private static void OpenUrl(string url)
+        {
+            try { System.Diagnostics.Process.Start(url); } catch { }
+        }
+
         private static string BuildHelpText()
         {
             var sb = new StringBuilder();
@@ -1094,6 +1131,10 @@ namespace PclDownloadRestore
             sb.AppendLine("【免责说明】");
             sb.AppendLine("本工具是第三方扩展，不修改 PCL，不绕过正版验证，不提供盗版内容。");
             sb.AppendLine("下载的文件来自 Mojang、BMCLAPI、Modrinth、CurseForge 或你自己输入的链接。");
+            sb.AppendLine();
+            sb.AppendLine("【致谢】");
+            sb.AppendLine("PCL 原作者：龙腾猫跃（https://github.com/Meloong-Git/PCL）");
+            sb.AppendLine("如果 PCL 帮到了你，欢迎切到「关于」页签点按钮支持作者。");
             return sb.ToString();
         }
 
