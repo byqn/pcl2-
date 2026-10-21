@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.6.4
+// PCL 下载恢复工具 v1.7.0
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -113,10 +113,13 @@ namespace PclDownloadRestore
         public string Title { get; set; }
         public string Description { get; set; }
         public string TypeLabel { get; set; }
+        public string Source { get; set; }
+        public string Slug { get; set; }
         public override string ToString()
         {
             string prefix = string.IsNullOrEmpty(TypeLabel) ? "" : "[" + TypeLabel + "] ";
-            return prefix + Title + "  —  " + Description;
+            string tag = Source == "curseforge" ? "  · CF" : "";
+            return prefix + Title + tag + "  —  " + Description;
         }
     }
 
@@ -363,6 +366,26 @@ namespace PclDownloadRestore
             throw new Exception("无法获取：" + url + Environment.NewLine + (lastError == null ? "" : lastError.Message));
         }
 
+        public static string CfKey = null;
+
+        public static void SetCfKey(string key)
+        {
+            CfKey = string.IsNullOrWhiteSpace(key) ? null : key.Trim();
+        }
+
+        public static string GetCurseForgeJson(string url)
+        {
+            if (string.IsNullOrEmpty(CfKey)) throw new Exception("未设置 CurseForge API Key。");
+            using (var wc = new WebClient())
+            {
+                wc.Headers.Add("x-api-key", CfKey);
+                wc.Headers.Add("Accept", "application/json");
+                wc.Headers.Add("User-Agent", Program.UserAgent);
+                wc.Encoding = Encoding.UTF8;
+                return wc.DownloadString(url);
+            }
+        }
+
         public static List<VersionEntry> FetchManifest(IProgressSink sink)
         {
             string json = GetString("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", "meta", sink);
@@ -489,6 +512,7 @@ namespace PclDownloadRestore
         private readonly TextBox _gameRoot;
         private readonly TextBox _outputDir;
         private readonly TextBox _proxyBox;
+        private readonly TextBox _cfKeyBox;
         private readonly ComboBox _versionBox;
         private readonly CheckBox _includeAssets;
         private readonly Button _loadVersions;
@@ -884,14 +908,25 @@ namespace PclDownloadRestore
             };
 
             var proxyLabel = new Label();
-            proxyLabel.Text = "代理（可选，留空为直连，例如 http://127.0.0.1:7890）";
-            proxyLabel.SetBounds(20, 586, 520, 22);
+            proxyLabel.Text = "代理（可空）";
+            proxyLabel.SetBounds(20, 586, 200, 22);
             Controls.Add(proxyLabel);
 
             _proxyBox = new TextBox();
-            _proxyBox.SetBounds(20, 608, 700, 26);
+            _proxyBox.SetBounds(20, 608, 380, 26);
             Controls.Add(_proxyBox);
             _proxyBox.TextChanged += delegate { Engine.SetProxy(_proxyBox.Text); };
+
+            var cfLabel = new Label();
+            cfLabel.Text = "CurseForge API Key（可空，填了才能搜 CF）";
+            cfLabel.SetBounds(420, 586, 400, 22);
+            Controls.Add(cfLabel);
+
+            _cfKeyBox = new TextBox();
+            _cfKeyBox.SetBounds(420, 608, 420, 26);
+            _cfKeyBox.UseSystemPasswordChar = true;
+            Controls.Add(_cfKeyBox);
+            _cfKeyBox.TextChanged += delegate { Engine.SetCfKey(_cfKeyBox.Text); };
 
             _status = new Label();
             _status.Text = "就绪。";
@@ -951,7 +986,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.6.4）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.7.0）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1126,6 +1161,7 @@ namespace PclDownloadRestore
                     if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value.TrimEnd('\\', '/');
                     else if (key == "outputDir") _outputDir.Text = value.TrimEnd('\\', '/');
                     else if (key == "proxy") { _proxyBox.Text = value; Engine.SetProxy(value); }
+                    else if (key == "cfKey") { _cfKeyBox.Text = value; Engine.SetCfKey(value); }
                     else if (key == "bgImagePath") { _bgImagePath = value; ApplyBackground(value); }
                     else if (key == "opacity")
                     {
@@ -1150,6 +1186,7 @@ namespace PclDownloadRestore
                     "gameRoot=" + _gameRoot.Text.TrimEnd('\\', '/'),
                     "outputDir=" + _outputDir.Text.TrimEnd('\\', '/'),
                     "proxy=" + _proxyBox.Text,
+                    "cfKey=" + _cfKeyBox.Text,
                     "bgImagePath=" + _bgImagePath,
                     "opacity=" + _opacitySlider.Value
                 }, new UTF8Encoding(false));
@@ -1779,6 +1816,23 @@ namespace PclDownloadRestore
                 LogLine("当前类型没结果，改为全类型再搜一次。");
                 projects = RunModrinthSearch(query, null, token);
             }
+            if (!string.IsNullOrEmpty(Engine.CfKey))
+            {
+                try
+                {
+                    var cf = SearchCurseForge(query, ClassIdForType(type), token);
+                    if (cf.Count > 0)
+                    {
+                        cf.AddRange(projects);
+                        projects = cf;
+                        LogLine("CurseForge 返回 " + cf.Count + " 条（含 Modrinth）。");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogLine("CurseForge 搜索失败：" + ex.Message);
+                }
+            }
             _projects = projects;
             BeginInvoke(new Action(delegate
             {
@@ -1792,8 +1846,120 @@ namespace PclDownloadRestore
                 LogLine("Modrinth 搜索完成。");
         }
 
+        private static int ClassIdForType(string type)
+        {
+            switch (type)
+            {
+                case "mod": return 6;
+                case "modpack": return 4471;
+                case "datapack": return 6945;
+                case "resourcepack": return 12;
+                case "shader": return 6552;
+                default: return 6;
+            }
+        }
+
+        private static string ClassTypeName(int classId)
+        {
+            switch (classId)
+            {
+                case 6: return "mod";
+                case 4471: return "modpack";
+                case 6945: return "datapack";
+                case 12: return "resourcepack";
+                case 6552: return "shader";
+                default: return "";
+            }
+        }
+
+        private List<ProjectEntry> SearchCurseForge(string query, int classId, CancellationToken token)
+        {
+            string url = "https://api.curseforge.com/v1/mods/search?gameId=432&classId=" + classId +
+                         "&searchFilter=" + Uri.EscapeDataString(query) + "&pageSize=20&sortField=2&sortOrder=desc";
+            string json = Engine.GetCurseForgeJson(url);
+            var root = Engine.ParseObject(json);
+            var data = Engine.Arr(root.ContainsKey("data") ? root["data"] : null);
+            var projects = new List<ProjectEntry>();
+            if (data == null) return projects;
+            foreach (object raw in data)
+            {
+                token.ThrowIfCancellationRequested();
+                var item = Engine.Obj(raw);
+                if (item == null) continue;
+                projects.Add(new ProjectEntry
+                {
+                    Id = Engine.Str(item.ContainsKey("id") ? item["id"] : null),
+                    Title = Engine.Str(item.ContainsKey("name") ? item["name"] : null),
+                    Description = Engine.Str(item.ContainsKey("summary") ? item["summary"] : null),
+                    TypeLabel = TypeName(ClassTypeName(classId)),
+                    Source = "curseforge",
+                    Slug = Engine.Str(item.ContainsKey("slug") ? item["slug"] : null)
+                });
+            }
+            return projects;
+        }
+
+        private void DoProjectCurseForge(ProjectEntry project, CancellationToken token)
+        {
+            Report("读取 CurseForge 文件列表…");
+            string url = "https://api.curseforge.com/v1/mods/" + project.Id + "/files?pageSize=50";
+            string json = Engine.GetCurseForgeJson(url);
+            var root = Engine.ParseObject(json);
+            var data = Engine.Arr(root.ContainsKey("data") ? root["data"] : null);
+            if (data == null || data.Length == 0) throw new Exception("该项目没有可下载文件。");
+            string gameFilter = _filterGameVersion.Text.Trim();
+            Dictionary<string, object> chosen = null;
+            foreach (object raw in data)
+            {
+                var file = Engine.Obj(raw);
+                if (file == null) continue;
+                if (!string.IsNullOrEmpty(gameFilter))
+                {
+                    var versions = Engine.Arr(file.ContainsKey("gameVersions") ? file["gameVersions"] : null);
+                    bool match = false;
+                    if (versions != null)
+                    {
+                        foreach (object version in versions)
+                        {
+                            if (string.Equals(Engine.Str(version), gameFilter, StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                        }
+                    }
+                    if (!match) continue;
+                }
+                chosen = file;
+                break;
+            }
+            if (chosen == null) throw new Exception("没有匹配游戏版本的文件，清空筛选后重试。");
+            string downloadUrl = Engine.Str(chosen.ContainsKey("downloadUrl") ? chosen["downloadUrl"] : null);
+            if (string.IsNullOrEmpty(downloadUrl))
+                throw new Exception("该文件作者禁止第三方下载（downloadUrl 为空），请到 CurseForge 网页手动下载。");
+            string fileName = Engine.Str(chosen.ContainsKey("fileName") ? chosen["fileName"] : null);
+            if (string.IsNullOrEmpty(fileName)) fileName = project.Title + ".jar";
+            if (fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new Exception("文件名无效。");
+
+            string folder = _outputDir.Text;
+            Directory.CreateDirectory(folder);
+            string destination = Path.Combine(folder, fileName);
+            if (File.Exists(destination))
+            {
+                destination = Path.Combine(folder,
+                    Path.GetFileNameWithoutExtension(fileName) + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + Path.GetExtension(fileName));
+            }
+            Report("下载 CurseForge 文件：" + fileName);
+            Engine.Download(downloadUrl, destination, null, "SHA1", 0, "curseforge", this, token);
+            LogLine("已保存：" + destination);
+            MessageBox.Show(this, "文件已保存：" + Environment.NewLine + destination, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            OpenFolder(folder);
+            Report("下载完成。");
+        }
+
         private void DoProject(ProjectEntry project, CancellationToken token)
         {
+            if (project.Source == "curseforge")
+            {
+                DoProjectCurseForge(project, token);
+                return;
+            }
             string type = ProjectTypeValue();
             string versionUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(project.Id) + "/version";
             Report("读取 " + project.Title + " 的可用版本…");
