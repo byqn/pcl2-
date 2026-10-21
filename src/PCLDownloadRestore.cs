@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.6.1
+// PCL 下载恢复工具 v1.6.2
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -696,7 +696,7 @@ namespace PclDownloadRestore
 
             _projectType = new ComboBox();
             _projectType.DropDownStyle = ComboBoxStyle.DropDownList;
-            _projectType.Items.AddRange(new object[] { "整合包", "Mod", "资源包", "光影包" });
+            _projectType.Items.AddRange(new object[] { "Mod", "整合包", "资源包", "光影包" });
             _projectType.SelectedIndex = 0;
             _projectType.SetBounds(58, 14, 110, 26);
             modrinthTab.Controls.Add(_projectType);
@@ -931,7 +931,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.6.1）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.6.2）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1657,15 +1657,31 @@ namespace PclDownloadRestore
             }
         }
 
-        private void DoSearch(CancellationToken token)
+        private static readonly Dictionary<string, string> ModAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            string query = _searchBox.Text.Trim();
-            if (string.IsNullOrEmpty(query)) throw new Exception("请输入搜索关键词。");
-            string type = ProjectTypeValue();
+            { "钠", "sodium" },
+            { "锂", "lithium" },
+            { "铱", "iris" },
+            { "铱光影", "iris shaders" },
+            { "铁氧体磁芯", "ferritecore" },
+            { "模组菜单", "mod menu" },
+            { "实体渲染机制优化", "entity culling" },
+            { "布料配置", "cloth config" },
+            { "立即快速", "immediatelyfast" },
+            { "苹果皮", "appleskin" },
+            { "合成表", "jei" },
+            { "小地图", "xaero" },
+            { "光影包", "shader" },
+            { "性能优化", "performance" },
+            { "区块预加载", "chunky" },
+            { "光影", "shaders" }
+        };
+
+        private List<ProjectEntry> RunModrinthSearch(string query, string type, CancellationToken token)
+        {
             string url = "https://api.modrinth.com/v2/search?query=" + Uri.EscapeDataString(query) +
                          "&facets=" + Uri.EscapeDataString("[[\"project_type:" + type + "\"]]") +
                          "&limit=30&index=relevance";
-            Report("正在 Modrinth 搜索 " + type + "…");
             string json = Engine.GetString(url, "direct", this);
             var response = Engine.ParseObject(json);
             var hits = Engine.Arr(response.ContainsKey("hits") ? response["hits"] : null);
@@ -1685,6 +1701,25 @@ namespace PclDownloadRestore
                     });
                 }
             }
+            return projects;
+        }
+
+        private void DoSearch(CancellationToken token)
+        {
+            string query = _searchBox.Text.Trim();
+            if (string.IsNullOrEmpty(query)) throw new Exception("请输入搜索关键词。");
+            string type = ProjectTypeValue();
+            Report("正在 Modrinth 搜索 " + type + "…");
+            var projects = RunModrinthSearch(query, type, token);
+            if (projects.Count == 0)
+            {
+                string alias;
+                if (ModAliases.TryGetValue(query, out alias))
+                {
+                    LogLine("中文关键词没结果，改用英文名重试：" + alias);
+                    projects = RunModrinthSearch(alias, type, token);
+                }
+            }
             _projects = projects;
             BeginInvoke(new Action(delegate
             {
@@ -1692,7 +1727,10 @@ namespace PclDownloadRestore
                 foreach (ProjectEntry project in _projects) _results.Items.Add(project);
             }));
             Report(string.Format("找到 {0} 个项目。", projects.Count));
-            LogLine("Modrinth 搜索完成。");
+            if (projects.Count == 0)
+                LogLine("没有结果：Modrinth 以英文为主，试试英文关键词，或把类型切到 Mod。");
+            else
+                LogLine("Modrinth 搜索完成。");
         }
 
         private void DoProject(ProjectEntry project, CancellationToken token)
