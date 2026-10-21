@@ -9,6 +9,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
@@ -257,6 +258,28 @@ namespace PclDownloadRestore
             throw new Exception("无法获取：" + url + Environment.NewLine + (lastError == null ? "" : lastError.Message));
         }
 
+        public static List<VersionEntry> FetchManifest(IProgressSink sink)
+        {
+            string json = GetString("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", "meta", sink);
+            var manifest = ParseObject(json);
+            var result = new List<VersionEntry>();
+            var rawVersions = Arr(manifest.ContainsKey("versions") ? manifest["versions"] : null);
+            if (rawVersions == null) return result;
+            foreach (object raw in rawVersions)
+            {
+                var item = Obj(raw);
+                if (item == null) continue;
+                result.Add(new VersionEntry
+                {
+                    Id = Str(item.ContainsKey("id") ? item["id"] : null),
+                    Type = Str(item.ContainsKey("type") ? item["type"] : null),
+                    Url = Str(item.ContainsKey("url") ? item["url"] : null),
+                    Sha1 = Str(item.ContainsKey("sha1") ? item["sha1"] : null)
+                });
+            }
+            return result;
+        }
+
         public static Dictionary<string, object> ParseObject(string json)
         {
             var serializer = new JavaScriptSerializer();
@@ -360,6 +383,7 @@ namespace PclDownloadRestore
         private readonly TextBox _filterGameVersion;
         private readonly TextBox _filterLoader;
         private readonly Button _downloadProject;
+        private readonly Button _installModpack;
         private readonly TextBox _directUrl;
         private readonly TextBox _directName;
         private readonly Button _directButton;
@@ -509,12 +533,17 @@ namespace PclDownloadRestore
 
             _downloadProject = new Button();
             _downloadProject.Text = "下载所选项目";
-            _downloadProject.SetBounds(16, 314, 160, 36);
+            _downloadProject.SetBounds(16, 314, 150, 36);
             modrinthTab.Controls.Add(_downloadProject);
 
+            _installModpack = new Button();
+            _installModpack.Text = "安装 .mrpack 整合包…";
+            _installModpack.SetBounds(176, 314, 190, 36);
+            modrinthTab.Controls.Add(_installModpack);
+
             var modrinthNote = new Label();
-            modrinthNote.Text = "整合包保存为 .mrpack；PCL 2.99 官方版已禁用整合包导入，本工具不绕过该限制。\r\nMod / 资源文件保存到下载目录，需按加载器手动放置。文件按 SHA-512 校验。";
-            modrinthNote.SetBounds(190, 308, 616, 52);
+            modrinthNote.Text = "整合包下载只保存文件；点「安装 .mrpack」可把整合包展开成 PCL 能识别的实例（支持原版 / Fabric / Quilt，Forge 需官方安装器）。\r\nPCL 2.99 官方版禁用了自带导入，本工具不修改 PCL。Mod / 资源文件按 SHA-512 校验。";
+            modrinthNote.SetBounds(16, 356, 790, 52);
             modrinthTab.Controls.Add(modrinthNote);
 
             var directTab = new TabPage("直接下载");
@@ -608,6 +637,7 @@ namespace PclDownloadRestore
             _runVanilla.Click += delegate { StartJob(JobKind.Vanilla); };
             _searchButton.Click += delegate { StartJob(JobKind.Search); };
             _downloadProject.Click += delegate { StartJob(JobKind.Project); };
+            _installModpack.Click += delegate { StartJob(JobKind.InstallModpack); };
             _directButton.Click += delegate { StartJob(JobKind.Direct); };
             _cancelButton.Click += delegate
             {
@@ -630,7 +660,8 @@ namespace PclDownloadRestore
             Vanilla,
             Search,
             Project,
-            Direct
+            Direct,
+            InstallModpack
         }
 
         private JobKind _job;
@@ -645,7 +676,7 @@ namespace PclDownloadRestore
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (ex.Message != "已取消。") MessageBox.Show(this, ex.Message, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             _job = kind;
@@ -669,6 +700,18 @@ namespace PclDownloadRestore
                         throw new Exception("请先选择一个搜索结果。");
                     RequireDirectory(_outputDir.Text);
                     return _projects[_results.SelectedIndex];
+                case JobKind.InstallModpack:
+                {
+                    using (var dialog = new OpenFileDialog())
+                    {
+                        dialog.Title = "选择 Modrinth 整合包（.mrpack）";
+                        dialog.Filter = "Modrinth 整合包 (*.mrpack)|*.mrpack|所有文件 (*.*)|*.*";
+                        if (dialog.ShowDialog(this) != DialogResult.OK) throw new Exception("已取消。");
+                        string file = dialog.FileName;
+                        RequireDirectory(_gameRoot.Text);
+                        return file;
+                    }
+                }
                 case JobKind.Direct:
                     var url = _directUrl.Text.Trim();
                     Uri uri;
@@ -698,6 +741,7 @@ namespace PclDownloadRestore
             _runVanilla.Enabled = !busy;
             _searchButton.Enabled = !busy;
             _downloadProject.Enabled = !busy;
+            _installModpack.Enabled = !busy;
             _directButton.Enabled = !busy;
         }
 
@@ -713,6 +757,7 @@ namespace PclDownloadRestore
                     case JobKind.Search: DoSearch(token); break;
                     case JobKind.Project: DoProject((ProjectEntry)_jobArgument, token); break;
                     case JobKind.Direct: DoDirect((Uri)_jobArgument, token); break;
+                    case JobKind.InstallModpack: DoInstallModpack((string)_jobArgument, token); break;
                 }
             }
             catch (OperationCanceledException)
@@ -865,7 +910,17 @@ namespace PclDownloadRestore
 
         private void DoVanilla(VersionEntry entry, CancellationToken token)
         {
-            string root = _gameRoot.Text;
+            InstallVanillaFiles(entry, _gameRoot.Text, _includeAssets.Checked, token);
+            LogLine("完成：" + entry.Id + "；根目录：" + _gameRoot.Text);
+            MessageBox.Show(this,
+                "版本 " + entry.Id + " 的官方文件已下载到：" + Environment.NewLine + _gameRoot.Text + Environment.NewLine + Environment.NewLine +
+                "本工具不会启动游戏。请在 PCL 中刷新版本列表；首次启动仍需正版账号验证。",
+                Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Report("版本 " + entry.Id + " 已下载完成。");
+        }
+
+        private void InstallVanillaFiles(VersionEntry entry, string root, bool includeAssets, CancellationToken token)
+        {
             string id = entry.Id;
             if (string.IsNullOrEmpty(id)) throw new Exception("版本 ID 无效。");
             foreach (char c in id)
@@ -948,7 +1003,7 @@ namespace PclDownloadRestore
                 }
             }
 
-            if (_includeAssets.Checked)
+            if (includeAssets)
             {
                 var assetIndex = meta.ContainsKey("assetIndex") ? Engine.Obj(meta["assetIndex"]) : null;
                 if (assetIndex != null)
@@ -1017,12 +1072,6 @@ namespace PclDownloadRestore
                 if (done % 20 == 0) LogLine(string.Format("已完成 {0} / {1} 个文件。", done, total));
             }
             ReportProgressCount(total, Math.Max(1, total));
-            LogLine("完成：" + id + "；根目录：" + root);
-            MessageBox.Show(this,
-                "版本 " + id + " 的官方文件已下载到：" + Environment.NewLine + root + Environment.NewLine + Environment.NewLine +
-                "本工具不会启动游戏。请在 PCL 中刷新版本列表；首次启动仍需正版账号验证。",
-                Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            Report("版本 " + id + " 已下载完成。");
         }
 
         private string ProjectTypeValue()
@@ -1193,6 +1242,204 @@ namespace PclDownloadRestore
             LogLine("已保存：" + destination);
             MessageBox.Show(this, "下载完成：" + Environment.NewLine + destination, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             Report("下载完成。");
+        }
+
+        // ===== 整合包安装（.mrpack）=====
+
+        private void DoInstallModpack(string archivePath, CancellationToken token)
+        {
+            if (!File.Exists(archivePath)) throw new Exception("找不到整合包文件：" + archivePath);
+            string gameRoot = _gameRoot.Text;
+            string work = Path.Combine(Path.GetTempPath(), "pcl-mrpack-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Report("解压整合包…");
+                ZipFile.ExtractToDirectory(archivePath, work);
+
+                string indexFile = Path.Combine(work, "modrinth.index.json");
+                if (!File.Exists(indexFile))
+                    throw new Exception("这不是 Modrinth 整合包：缺少 modrinth.index.json。");
+
+                var index = Engine.ParseObject(File.ReadAllText(indexFile, Encoding.UTF8));
+                var deps = index.ContainsKey("dependencies") ? Engine.Obj(index["dependencies"]) : null;
+                if (deps == null) throw new Exception("整合包缺少 dependencies 字段。");
+
+                string mcVersion = Engine.Str(deps.ContainsKey("minecraft") ? deps["minecraft"] : null);
+                if (string.IsNullOrEmpty(mcVersion)) throw new Exception("整合包没有指定 Minecraft 版本。");
+
+                string fabricLoader = deps.ContainsKey("fabric-loader") ? Engine.Str(deps["fabric-loader"]) : null;
+                string quiltLoader = deps.ContainsKey("quilt-loader") ? Engine.Str(deps["quilt-loader"]) : null;
+                string forgeVersion = deps.ContainsKey("forge") ? Engine.Str(deps["forge"]) : null;
+                string neoForgeVersion = deps.ContainsKey("neoforge") ? Engine.Str(deps["neoforge"]) : null;
+
+                if (!string.IsNullOrEmpty(forgeVersion) || !string.IsNullOrEmpty(neoForgeVersion))
+                    throw new Exception("该整合包需要 Forge 或 NeoForge。它们必须运行官方安装器生成启动配置，本工具目前只支持原版、Fabric、Quilt 整合包。\r\n\r\n" +
+                                        "变通办法：先用官方安装器装好对应加载器版本，再把整合包 mods/ 里的文件复制进去。");
+
+                string displayName = Engine.Str(index.ContainsKey("name") ? index["name"] : null);
+                if (string.IsNullOrEmpty(displayName)) displayName = "Modpack";
+                string instance = MakeInstanceName(gameRoot, displayName);
+                string instanceDir = Path.Combine(Path.Combine(gameRoot, "versions"), instance);
+                Directory.CreateDirectory(instanceDir);
+
+                Report("准备原版 " + mcVersion + " 文件…");
+                var manifest = Engine.FetchManifest(this);
+                VersionEntry vanilla = null;
+                foreach (VersionEntry candidate in manifest)
+                {
+                    if (candidate.Id == mcVersion) { vanilla = candidate; break; }
+                }
+                if (vanilla == null) throw new Exception("Mojang 版本清单里找不到 Minecraft " + mcVersion + "。");
+                InstallVanillaFiles(vanilla, gameRoot, true, token);
+
+                string profileUrl = null;
+                if (!string.IsNullOrEmpty(fabricLoader))
+                {
+                    profileUrl = "https://meta.fabricmc.net/v2/versions/loader/" + Uri.EscapeDataString(mcVersion) + "/" +
+                                 Uri.EscapeDataString(fabricLoader) + "/profile/json";
+                }
+                else if (!string.IsNullOrEmpty(quiltLoader))
+                {
+                    profileUrl = "https://meta.quiltmc.org/v3/versions/loader/" + Uri.EscapeDataString(mcVersion) + "/" +
+                                 Uri.EscapeDataString(quiltLoader) + "/profile/json";
+                }
+
+                string versionJson = Path.Combine(instanceDir, instance + ".json");
+                if (profileUrl != null)
+                {
+                    Report("读取加载器配置…");
+                    var profile = Engine.ParseObject(Engine.GetString(profileUrl, "direct", this));
+                    var libraries = Engine.Arr(profile.ContainsKey("libraries") ? profile["libraries"] : null);
+                    if (libraries != null)
+                    {
+                        foreach (object rawLib in libraries)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            var lib = Engine.Obj(rawLib);
+                            if (lib == null) continue;
+                            string coord = Engine.Str(lib.ContainsKey("name") ? lib["name"] : null);
+                            if (string.IsNullOrEmpty(coord)) continue;
+                            string baseUrl = lib.ContainsKey("url") ? Engine.Str(lib["url"]) : "https://maven.fabricmc.net/";
+                            if (string.IsNullOrEmpty(baseUrl)) baseUrl = "https://maven.fabricmc.net/";
+                            string relative = MavenRelative(coord);
+                            string hash = Engine.Str(lib.ContainsKey("sha1") ? lib["sha1"] : null);
+                            long size = Engine.Long(lib.ContainsKey("size") ? lib["size"] : null);
+                            Report("下载加载器库：" + coord);
+                            Engine.Download(baseUrl.TrimEnd('/') + "/" + relative,
+                                Engine.SafeChild(gameRoot, "libraries/" + relative), hash, "SHA1", size, "library", this, token);
+                        }
+                    }
+                    profile["id"] = instance;
+                    profile["inheritsFrom"] = mcVersion;
+                    WriteJsonFile(profile, versionJson);
+                }
+                else
+                {
+                    var stub = new Dictionary<string, object>();
+                    stub["id"] = instance;
+                    stub["inheritsFrom"] = mcVersion;
+                    stub["type"] = "release";
+                    string now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+                    stub["time"] = now;
+                    stub["releaseTime"] = now;
+                    WriteJsonFile(stub, versionJson);
+                }
+
+                var files = Engine.Arr(index.ContainsKey("files") ? index["files"] : null);
+                if (files != null)
+                {
+                    int indexCounter = 0;
+                    foreach (object rawFile in files)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        indexCounter++;
+                        var file = Engine.Obj(rawFile);
+                        if (file == null) continue;
+                        string relativePath = Engine.Str(file.ContainsKey("path") ? file["path"] : null);
+                        var downloads = Engine.Arr(file.ContainsKey("downloads") ? file["downloads"] : null);
+                        string url = downloads != null && downloads.Length > 0 ? Engine.Str(downloads[0]) : null;
+                        if (string.IsNullOrEmpty(relativePath) || string.IsNullOrEmpty(url)) continue;
+                        var hashes = file.ContainsKey("hashes") ? Engine.Obj(file["hashes"]) : null;
+                        string sha512 = hashes != null && hashes.ContainsKey("sha512") ? Engine.Str(hashes["sha512"]) : null;
+                        long size = Engine.Long(file.ContainsKey("fileSize") ? file["fileSize"] : null);
+                        Report(string.Format("下载整合包文件：{0} / {1}", indexCounter, files.Length));
+                        Engine.Download(url, Engine.SafeChild(instanceDir, relativePath), sha512, "SHA512", size, "modrinth", this, token);
+                    }
+                }
+
+                string overrides = Path.Combine(work, "overrides");
+                if (Directory.Exists(overrides))
+                {
+                    Report("复制整合包覆盖文件…");
+                    CopyDirectory(overrides, instanceDir);
+                }
+
+                LogLine("整合包已安装为实例：" + instance);
+                Report("整合包安装完成：" + instance);
+                MessageBox.Show(this,
+                    "整合包已安装！\r\n\r\nPCL 版本名：" + instance +
+                    "\r\n位置：" + instanceDir + "\r\n\r\n" +
+                    "回到 PCL 刷新版本列表，就能看到这个实例。\r\n" +
+                    "首次启动仍需正版账号验证；若 PCL 提示缺少资源，请回到「原版 Minecraft」页补齐同一版本。",
+                    Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch { }
+            }
+        }
+
+        private static string MakeInstanceName(string gameRoot, string displayName)
+        {
+            var builder = new StringBuilder();
+            foreach (char c in displayName.Trim())
+            {
+                if (char.IsLetterOrDigit(c) || c == ' ' || c == '-' || c == '_' || c == '.') builder.Append(c);
+            }
+            string baseName = builder.ToString().Trim();
+            if (baseName.Length == 0) baseName = "Modpack";
+            if (baseName.Length > 48) baseName = baseName.Substring(0, 48).Trim();
+            string versionsRoot = Path.Combine(gameRoot, "versions");
+            string candidate = baseName;
+            int suffix = 2;
+            while (Directory.Exists(Path.Combine(versionsRoot, candidate)))
+            {
+                candidate = baseName + " (" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
+                suffix++;
+            }
+            return candidate;
+        }
+
+        private static string MavenRelative(string coord)
+        {
+            string[] parts = coord.Split(':');
+            if (parts.Length < 3) throw new Exception("无法解析 Maven 坐标：" + coord);
+            string group = parts[0].Replace('.', '/');
+            string artifact = parts[1];
+            string version = parts[2];
+            return group + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ".jar";
+        }
+
+        private static void WriteJsonFile(Dictionary<string, object> data, string path)
+        {
+            var serializer = new JavaScriptSerializer();
+            serializer.MaxJsonLength = int.MaxValue;
+            string text = serializer.Serialize(data);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, text, new UTF8Encoding(false));
+        }
+
+        private static void CopyDirectory(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (string file in Directory.GetFiles(source))
+            {
+                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
+            }
+            foreach (string directory in Directory.GetDirectories(source))
+            {
+                CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
+            }
         }
     }
 }

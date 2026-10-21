@@ -24,7 +24,7 @@ Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
         <local:MyButton Width="280" Height="36" HorizontalAlignment="Left" Margin="0,0,0,8" Text="打开 CurseForge"
                         EventType="打开网页" EventData="https://www.curseforge.com/minecraft" />
         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush2}"
-                   Text="注意：PCL 2.99 官方版已禁用 Minecraft 下载与整合包导入，本扩展不会绕过此限制。下载的 .mrpack 只能保存，无法直接导入 PCL。" />
+                   Text="整合包：在下载中心的 Modrinth 页签点「安装 .mrpack 整合包」，可把整合包展开成 PCL 能识别的实例（支持原版 / Fabric / Quilt；Forge、NeoForge 需官方安装器）。PCL 2.99 自带导入仍不可用，本扩展不修改 PCL。" />
     </StackPanel>
 </local:MyCard>
 
