@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.5.4
+// PCL 下载恢复工具 v1.6.0
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -116,6 +116,15 @@ namespace PclDownloadRestore
         {
             return Title + "  —  " + Description;
         }
+    }
+
+    internal sealed class GameRequest
+    {
+        public string McVersion { get; set; }
+        public string LoaderType { get; set; }
+        public string LoaderVersion { get; set; }
+        public string OptiFineType { get; set; }
+        public string OptiFinePatch { get; set; }
     }
 
     internal sealed class LoaderEntry
@@ -499,6 +508,10 @@ namespace PclDownloadRestore
         private readonly ListBox _loaderList;
         private readonly Button _installLoaderBtn;
         private readonly Button _quickInstallBtn;
+        private readonly ComboBox _dlMcBox;
+        private readonly ComboBox _dlLoaderBox;
+        private readonly ComboBox _dlLoaderVersionBox;
+        private readonly Button _dlStartBtn;
         private readonly Label _status;
         private readonly ProgressBar _progress;
         private readonly Button _cancelButton;
@@ -560,7 +573,74 @@ namespace PclDownloadRestore
             tabs.SetBounds(18, 108, 844, 420);
             Controls.Add(tabs);
 
-            var vanillaTab = new TabPage("原版 Minecraft");
+            var downloadTab = new TabPage("下载游戏");
+            tabs.TabPages.Add(downloadTab);
+
+            var dlTitle = new Label();
+            dlTitle.Text = "选择 Minecraft 版本和加载器，然后点「开始下载」";
+            dlTitle.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            dlTitle.SetBounds(20, 16, 500, 26);
+            downloadTab.Controls.Add(dlTitle);
+
+            var dlMcLabel = new Label();
+            dlMcLabel.Text = "Minecraft 版本";
+            dlMcLabel.SetBounds(20, 64, 90, 24);
+            downloadTab.Controls.Add(dlMcLabel);
+
+            _dlMcBox = new ComboBox();
+            _dlMcBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _dlMcBox.SetBounds(116, 60, 260, 28);
+            downloadTab.Controls.Add(_dlMcBox);
+
+            var dlRefreshMc = new Button();
+            dlRefreshMc.Text = "刷新";
+            dlRefreshMc.SetBounds(386, 59, 80, 30);
+            downloadTab.Controls.Add(dlRefreshMc);
+
+            var dlLoaderLabel = new Label();
+            dlLoaderLabel.Text = "加载器";
+            dlLoaderLabel.SetBounds(20, 112, 90, 24);
+            downloadTab.Controls.Add(dlLoaderLabel);
+
+            _dlLoaderBox = new ComboBox();
+            _dlLoaderBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _dlLoaderBox.Items.AddRange(new object[] { "无（仅原版）", "Fabric", "Forge", "NeoForge", "OptiFine" });
+            _dlLoaderBox.SelectedIndex = 0;
+            _dlLoaderBox.SetBounds(116, 108, 260, 28);
+            downloadTab.Controls.Add(_dlLoaderBox);
+
+            var dlLoaderVersionLabel = new Label();
+            dlLoaderVersionLabel.Text = "加载器版本";
+            dlLoaderVersionLabel.SetBounds(20, 160, 90, 24);
+            downloadTab.Controls.Add(dlLoaderVersionLabel);
+
+            _dlLoaderVersionBox = new ComboBox();
+            _dlLoaderVersionBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _dlLoaderVersionBox.SetBounds(116, 156, 350, 28);
+            downloadTab.Controls.Add(_dlLoaderVersionBox);
+
+            var dlRefreshLoader = new Button();
+            dlRefreshLoader.Text = "刷新版本";
+            dlRefreshLoader.SetBounds(476, 155, 90, 30);
+            downloadTab.Controls.Add(dlRefreshLoader);
+
+            _dlStartBtn = new Button();
+            _dlStartBtn.Text = "开始下载";
+            _dlStartBtn.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
+            _dlStartBtn.SetBounds(116, 210, 260, 46);
+            downloadTab.Controls.Add(_dlStartBtn);
+
+            var dlHint = new Label();
+            dlHint.Text = "Forge / NeoForge 需要本机安装 Java（17 或更高）；OptiFine 只下载官方安装器，需手动双击运行。\r\n加载器版本留空会自动选最新。";
+            dlHint.SetBounds(20, 274, 790, 50);
+            downloadTab.Controls.Add(dlHint);
+
+            dlRefreshMc.Click += delegate { RefreshMcCombo(); };
+            dlRefreshLoader.Click += delegate { RefreshLoaderCombo(); };
+            _dlMcBox.SelectedIndexChanged += delegate { RefreshLoaderCombo(); };
+            _dlLoaderBox.SelectedIndexChanged += delegate { RefreshLoaderCombo(); };
+
+            var vanillaTab = new TabPage("原版文件");
             tabs.TabPages.Add(vanillaTab);
             var vanillaInfo = new Label();
             vanillaInfo.Text = "读取 Mojang 版本清单，下载版本 JSON、客户端 JAR、Windows 库与原生库、日志配置，可选下载游戏资源。\r\n所有带 SHA-1 的文件都会校验；官方源失败时尝试 BMCLAPI。";
@@ -821,6 +901,7 @@ namespace PclDownloadRestore
             _loadLoaderBtn.Click += delegate { StartJob(JobKind.LoadLoaderVersions); };
             _installLoaderBtn.Click += delegate { StartJob(JobKind.InstallLoader); };
             _quickInstallBtn.Click += delegate { StartJob(JobKind.QuickInstall); };
+            _dlStartBtn.Click += delegate { StartJob(JobKind.DownloadGame); };
             _cancelButton.Click += delegate
             {
                 if (_cts != null) _cts.Cancel();
@@ -837,12 +918,13 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.5.4）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.6.0）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
             LoadSettings();
             FormClosing += delegate { SaveSettings(); };
+            RefreshMcCombo();
         }
 
         private static string DetectGameRoot()
@@ -934,7 +1016,8 @@ namespace PclDownloadRestore
             InstallModpack,
             LoadLoaderVersions,
             InstallLoader,
-            QuickInstall
+            QuickInstall,
+            DownloadGame
         }
 
         private JobKind _job;
@@ -1022,6 +1105,33 @@ namespace PclDownloadRestore
                 }
                 case JobKind.LoadLoaderVersions:
                     return null;
+                case JobKind.DownloadGame:
+                {
+                    string mc = Convert.ToString(_dlMcBox.SelectedItem);
+                    if (string.IsNullOrEmpty(mc)) throw new Exception("请先选择 Minecraft 版本（点「刷新」加载列表）。");
+                    string loaderType = Convert.ToString(_dlLoaderBox.SelectedItem);
+                    if (string.IsNullOrEmpty(loaderType) || loaderType.StartsWith("无", StringComparison.Ordinal))
+                        return new GameRequest { McVersion = mc, LoaderType = "无" };
+
+                    LoaderEntry loader = _dlLoaderVersionBox.SelectedItem as LoaderEntry;
+                    if (loader == null)
+                    {
+                        foreach (object item in _dlLoaderVersionBox.Items)
+                        {
+                            loader = item as LoaderEntry;
+                            if (loader != null) break;
+                        }
+                    }
+                    if (loader == null) throw new Exception("还没读取到加载器版本，请等几秒或点「刷新版本」。");
+                    return new GameRequest
+                    {
+                        McVersion = mc,
+                        LoaderType = loaderType,
+                        LoaderVersion = loader.Version,
+                        OptiFineType = loader.ExtraType,
+                        OptiFinePatch = loader.ExtraPatch
+                    };
+                }
                 case JobKind.InstallLoader:
                     if (_loaderList.SelectedIndex < 0 || _loaderList.SelectedIndex >= _loaderEntries.Count)
                         throw new Exception("请先读取并选择加载器版本。");
@@ -1060,6 +1170,7 @@ namespace PclDownloadRestore
             _loadLoaderBtn.Enabled = !busy;
             _installLoaderBtn.Enabled = !busy;
             _quickInstallBtn.Enabled = !busy;
+            _dlStartBtn.Enabled = !busy;
             _directButton.Enabled = !busy;
         }
 
@@ -1079,6 +1190,7 @@ namespace PclDownloadRestore
                     case JobKind.LoadLoaderVersions: DoLoadLoaderVersions(token); break;
                     case JobKind.InstallLoader: DoInstallLoader((LoaderEntry)_jobArgument, token); break;
                     case JobKind.QuickInstall: DoQuickInstall(token); break;
+                    case JobKind.DownloadGame: DoDownloadGame((GameRequest)_jobArgument, token); break;
                 }
             }
             catch (OperationCanceledException)
@@ -1929,16 +2041,12 @@ namespace PclDownloadRestore
 
         // ===== 加载器版本列表与安装 =====
 
-        private void DoLoadLoaderVersions(CancellationToken token)
+        private List<LoaderEntry> LoadLoaderEntries(string type, string mc, CancellationToken token)
         {
-            string type = Convert.ToString(_loaderType.SelectedItem);
-            string mc = _loaderMc.Text.Trim();
             var entries = new List<LoaderEntry>();
-            Report("读取 " + type + " 版本列表…");
-
             if (type == "Forge")
             {
-                string xml = Engine.GetString("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", "direct", this);
+                string xml = Engine.GetString("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", "direct", null);
                 foreach (string version in XmlVersions(xml))
                 {
                     token.ThrowIfCancellationRequested();
@@ -1952,7 +2060,7 @@ namespace PclDownloadRestore
             }
             else if (type == "NeoForge")
             {
-                string xml = Engine.GetString("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", "direct", this);
+                string xml = Engine.GetString("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", "direct", null);
                 foreach (string version in XmlVersions(xml))
                 {
                     token.ThrowIfCancellationRequested();
@@ -1965,7 +2073,7 @@ namespace PclDownloadRestore
             }
             else if (type == "Fabric")
             {
-                string json = Engine.GetString("https://meta.fabricmc.net/v2/versions/loader", "direct", this);
+                string json = Engine.GetString("https://meta.fabricmc.net/v2/versions/loader", "direct", null);
                 var array = Engine.ParseArray(json);
                 if (array != null)
                 {
@@ -1982,7 +2090,7 @@ namespace PclDownloadRestore
             }
             else
             {
-                string json = Engine.GetString("https://bmclapi2.bangbang93.com/optifine/versionList", "direct", this);
+                string json = Engine.GetString("https://bmclapi2.bangbang93.com/optifine/versionList", "direct", null);
                 var array = Engine.ParseArray(json);
                 if (array != null)
                 {
@@ -1995,7 +2103,7 @@ namespace PclDownloadRestore
                         string typePart = Engine.Str(item.ContainsKey("type") ? item["type"] : null);
                         string patch = Engine.Str(item.ContainsKey("patch") ? item["patch"] : null);
                         if (string.IsNullOrEmpty(mcPart) || string.IsNullOrEmpty(typePart) || string.IsNullOrEmpty(patch)) continue;
-                        if (patch.StartsWith("pre", StringComparison.OrdinalIgnoreCase)) continue; // 跳过预览版
+                        if (patch.StartsWith("pre", StringComparison.OrdinalIgnoreCase)) continue;
                         if (!string.IsNullOrEmpty(mc) && mcPart != mc) continue;
                         entries.Add(new LoaderEntry
                         {
@@ -2006,8 +2114,16 @@ namespace PclDownloadRestore
                     }
                 }
             }
-
             entries.Reverse();
+            return entries;
+        }
+
+        private void DoLoadLoaderVersions(CancellationToken token)
+        {
+            string type = Convert.ToString(_loaderType.SelectedItem);
+            string mc = _loaderMc.Text.Trim();
+            Report("读取 " + type + " 版本列表…");
+            var entries = LoadLoaderEntries(type, mc, token);
             if (entries.Count > 800) entries = entries.GetRange(0, 800);
             _loaderEntries = entries;
             BeginInvoke(new Action(delegate
@@ -2075,6 +2191,112 @@ namespace PclDownloadRestore
             Report("下载完成。");
         }
 
+        private void RefreshMcCombo()
+        {
+            var thread = new Thread(delegate()
+            {
+                try
+                {
+                    var manifest = Engine.FetchManifest(null);
+                    BeginInvoke(new Action(delegate
+                    {
+                        string current = Convert.ToString(_dlMcBox.SelectedItem);
+                        _dlMcBox.Items.Clear();
+                        foreach (VersionEntry entry in manifest) _dlMcBox.Items.Add(entry.Id);
+                        int index = current.Length > 0 ? _dlMcBox.Items.IndexOf(current) : -1;
+                        if (index >= 0) _dlMcBox.SelectedIndex = index;
+                        else if (_dlMcBox.Items.Count > 0) _dlMcBox.SelectedIndex = 0;
+                    }));
+                }
+                catch { }
+            });
+            thread.IsBackground = true;
+            thread.Start();
+        }
+
+        private void RefreshLoaderCombo()
+        {
+            string type = Convert.ToString(_dlLoaderBox.SelectedItem);
+            string mc = Convert.ToString(_dlMcBox.SelectedItem);
+            _dlLoaderVersionBox.Items.Clear();
+            if (string.IsNullOrEmpty(type) || type.StartsWith("无", StringComparison.Ordinal) || string.IsNullOrEmpty(mc)) return;
+            var thread = new Thread(delegate()
+            {
+                try
+                {
+                    var entries = LoadLoaderEntries(type, mc, CancellationToken.None);
+                    BeginInvoke(new Action(delegate
+                    {
+                        string currentType = Convert.ToString(_dlLoaderBox.SelectedItem);
+                        if (currentType != type) return;
+                        _dlLoaderVersionBox.Items.Clear();
+                        foreach (LoaderEntry entry in entries) _dlLoaderVersionBox.Items.Add(entry);
+                        if (_dlLoaderVersionBox.Items.Count > 0) _dlLoaderVersionBox.SelectedIndex = 0;
+                    }));
+                }
+                catch { }
+            });
+            thread.IsBackground = true;
+            thread.Start();
+        }
+
+        private void DoDownloadGame(GameRequest request, CancellationToken token)
+        {
+            string gameRoot = _gameRoot.Text.TrimEnd('\\', '/');
+            Report("准备 " + request.McVersion + " 原版文件…");
+            var manifest = Engine.FetchManifest(this);
+            VersionEntry vanilla = null;
+            foreach (VersionEntry entry in manifest)
+            {
+                if (entry.Id == request.McVersion) { vanilla = entry; break; }
+            }
+            if (vanilla == null) throw new Exception("Mojang 版本清单里找不到 " + request.McVersion);
+            InstallVanillaFiles(vanilla, gameRoot, true, token);
+
+            if (request.LoaderType == "无")
+            {
+                LogLine("原版 " + request.McVersion + " 下载完成。");
+                MessageBox.Show(this,
+                    "原版 " + request.McVersion + " 已下载完成。\r\n\r\n回到 PCL 刷新版本列表即可看到。",
+                    Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenFolder(Path.Combine(gameRoot, "versions", request.McVersion));
+                Report("下载完成。");
+                return;
+            }
+
+            LogLine("安装加载器：" + request.LoaderType + " " + request.LoaderVersion);
+            if (request.LoaderType == "Fabric")
+            {
+                string instance = MakeInstanceName(gameRoot, request.McVersion + "-Fabric_" + request.LoaderVersion);
+                InstallFabricLoader(gameRoot, request.McVersion, request.LoaderVersion, instance, this, token);
+                MessageBox.Show(this,
+                    "Fabric 实例已创建：" + instance + "\r\n\r\n回到 PCL 刷新版本列表即可看到。",
+                    Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenFolder(Path.Combine(gameRoot, "versions", instance));
+            }
+            else if (request.LoaderType == "Forge" || request.LoaderType == "NeoForge")
+            {
+                bool neo = request.LoaderType == "NeoForge";
+                InstallForgeLike(gameRoot, request.McVersion, request.LoaderVersion, neo, token);
+                MessageBox.Show(this,
+                    (neo ? "NeoForge " : "Forge ") + request.LoaderVersion + " 已安装。\r\n\r\n回到 PCL 刷新版本列表，选择新出现的游戏版本。",
+                    Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenFolder(Path.Combine(gameRoot, "versions"));
+            }
+            else if (request.LoaderType == "OptiFine")
+            {
+                string url = "https://bmclapi2.bangbang93.com/optifine/" + request.McVersion + "/" + request.OptiFineType + "/" + request.OptiFinePatch;
+                string dest = Path.Combine(gameRoot, "OptiFine_" + request.McVersion + "_" + request.OptiFineType + "_" + request.OptiFinePatch + ".jar");
+                Report("下载 OptiFine 安装器…");
+                Engine.Download(url, dest, null, "SHA1", 0, "direct", this, token);
+                MessageBox.Show(this,
+                    "OptiFine 安装器已下载：\r\n" + dest + "\r\n\r\n请手动双击运行它完成安装。",
+                    Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenFolder(gameRoot);
+            }
+            Report("下载完成。");
+        }
+
         private void DoQuickInstall(CancellationToken token)
         {
             string type = Convert.ToString(_loaderType.SelectedItem);
@@ -2091,7 +2313,7 @@ namespace PclDownloadRestore
             LoaderEntry entry = null;
             if (type == "Forge")
             {
-                string xml = Engine.GetString("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", "direct", this);
+                string xml = Engine.GetString("https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml", "direct", null);
                 string latest = null;
                 foreach (string version in XmlVersions(xml))
                 {
@@ -2107,7 +2329,7 @@ namespace PclDownloadRestore
             }
             else if (type == "NeoForge")
             {
-                string xml = Engine.GetString("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", "direct", this);
+                string xml = Engine.GetString("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml", "direct", null);
                 string latest = null;
                 foreach (string version in XmlVersions(xml))
                 {
@@ -2122,7 +2344,7 @@ namespace PclDownloadRestore
             }
             else if (type == "Fabric")
             {
-                string json = Engine.GetString("https://meta.fabricmc.net/v2/versions/loader", "direct", this);
+                string json = Engine.GetString("https://meta.fabricmc.net/v2/versions/loader", "direct", null);
                 var array = Engine.ParseArray(json);
                 if (array == null || array.Length == 0) throw new Exception("无法获取 Fabric 版本列表。");
                 var first = Engine.Obj(array[0]);
@@ -2132,7 +2354,7 @@ namespace PclDownloadRestore
             }
             else
             {
-                string json = Engine.GetString("https://bmclapi2.bangbang93.com/optifine/versionList", "direct", this);
+                string json = Engine.GetString("https://bmclapi2.bangbang93.com/optifine/versionList", "direct", null);
                 var array = Engine.ParseArray(json);
                 if (array == null) throw new Exception("无法获取 OptiFine 版本列表。");
                 string bestType = null;
