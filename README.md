@@ -22,6 +22,11 @@
 - **Modrinth**：搜索整合包、Mod、资源包和光影包；可按游戏版本及加载器筛选；下载 Modrinth 发布文件并验证 SHA-512。
 - **整合包安装**：在 Modrinth 页签点「安装 .mrpack 整合包」，**先弹出预览**（名称 / Minecraft 版本 / 加载器 / 文件数 / 总大小），确认后才开始。安装流程：下载对应原版文件 → **Fabric / Quilt** 读取官方 meta 下载加载器库，**Forge / NeoForge** 调用官方安装器（需本机有 Java）→ 下载整合包内所有文件（SHA-512 校验）→ 复制 `overrides/` → 生成 `versions/<实例名>/<实例名>.json`。完成后自动打开实例目录，PCL 刷新版本列表即可看到。
 - **代理**：底部可填 `http://127.0.0.1:7890` 之类的 HTTP 代理，对所有请求生效，留空即直连。
+- **加载器下载安装**（「加载器」页签）：选 Forge / NeoForge / Fabric / OptiFine 和 Minecraft 版本，列出该版本下全部可用加载器版本并一键安装。
+  - Forge：读取 `maven.minecraftforge.net` 官方清单（5000+ 版本），下载安装器并调用 Java 静默安装。
+  - NeoForge：读取 `maven.neoforged.net` 清单，自动把 `20.1.0` 映射到 `1.20.1`、`26.3.0.95` 映射到 `26.3`。
+  - Fabric：读取官方 meta，直接生成实例，不需要安装器。
+  - OptiFine：读取 BMCLAPI 清单，下载官方安装器（安装器需要图形界面，需手动双击）。
 - **直接下载**：对用户明确输入的 HTTP/HTTPS 链接下载文件。HTTP 会显示风险提示；已存在的文件不会被静默覆盖。
 - 不收集账号凭据、不请求 Microsoft/Mojang 令牌、不启动游戏、不运行下载的文件。
 
@@ -79,4 +84,4 @@
 
 本工具独立实现下载逻辑，只参考 PCL 已公开的自定义事件说明、下载源 URL 映射和许可指南，没有复制 PCL 源码。PCL 项目作者为龙腾猫跃；上游仓库：<https://github.com/Meloong-Git/PCL>；赞助链接：<https://meloong.com/afd/a/LTCat>；上游许可/合理使用指南：<https://github.com/Meloong-Git/PCL/blob/main/LICENCE>。
 
-本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.4.1` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
+本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.5.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。

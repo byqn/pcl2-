@@ -23,6 +23,8 @@ Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
                         EventType="打开网页" EventData="https://modrinth.com/" />
         <local:MyButton Width="280" Height="36" HorizontalAlignment="Left" Margin="0,0,0,8" Text="打开 CurseForge"
                         EventType="打开网页" EventData="https://www.curseforge.com/minecraft" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource ColorBrush2}"
+                   Text="加载器：下载中心还有「加载器」页签，可列出并安装 Forge、NeoForge、Fabric、OptiFine 的全部可用版本（Forge/NeoForge 需 Java，OptiFine 只下载官方安装器）。" />
         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush2}"
                    Text="整合包：在下载中心的 Modrinth 页签点「安装 .mrpack 整合包」，可把整合包展开成 PCL 能识别的实例。支持原版、Fabric、Quilt；Forge / NeoForge 会调用官方安装器（需要电脑已安装 Java）。PCL 2.99 自带导入仍不可用，本扩展不修改 PCL。" />
     </StackPanel>
