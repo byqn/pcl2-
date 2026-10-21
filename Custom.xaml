@@ -1,0 +1,39 @@
+<!--
+Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
+基于官方 PCL 自定义主页/自定义事件接口；非官方插件，不修改 PCL 核心程序。
+将 PCLDownloadFix.ps1 放在 PCL 程序目录（{path} 所指目录），再从“设置 → 个性化 → 自定义主页”加载本文件；也可将本文件放入 PCL\Custom.xaml。
+-->
+<StackPanel Margin="24,30,24,20">
+    <local:MyCard Title="Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）" CanSwap="False" IsSwaped="False" Margin="0,0,0,12">
+        <StackPanel Margin="24,28,24,18">
+            <TextBlock TextWrapping="Wrap" FontSize="14" Foreground="{DynamicResource ColorBrush1}"
+                       Text="PCL 2.99 起不再内置 Minecraft 下载入口。本扩展提供原版文件补齐、Modrinth 整合包/资源下载与 HTTP(S) 文件下载；原版文件按 Mojang SHA-1 校验，失败自动重试官方源与 BMCLAPI。不会启动游戏或运行下载内容。" />
+            <local:MyButton Margin="0,18,0,8" Height="42" Text="打开下载中心" EventType="执行命令"
+                EventData="powershell.exe|-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File &quot;{path}PCLDownloadFix.ps1&quot;"
+                ToolTip="打开本地下载工具；仅下载文件，不执行下载内容。" />
+            <local:MyHint IsWarn="False" Text="先在下载工具里选择 PCL 当前游戏目录。整合包只能下载保存；PCL 2.99 官方版禁用了导入，本扩展不会绕过此限制。" />
+        </StackPanel>
+    </local:MyCard>
+
+    <local:MyCard Title="整合包与资源" CanSwap="False" IsSwaped="False" Margin="0,0,0,12">
+        <StackPanel Margin="24,18,24,16">
+            <local:MyButton Margin="0,0,0,8" Height="38" Text="浏览 Modrinth 项目" EventType="打开网页"
+                EventData="https://modrinth.com/" />
+            <local:MyButton Margin="0,0,0,8" Height="38" Text="浏览 CurseForge 项目" EventType="打开网页"
+                EventData="https://www.curseforge.com/minecraft" />
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush2}"
+                       Text="重要：PCL 2.99 官方版已禁用 Minecraft 下载与整合包导入；本工具可把 Modrinth 文件保存到本地，但不会绕过 PCL 的导入限制。单个 Mod、资源包和光影包需按对应加载器手动放置；CurseForge 搜索需授权，本扩展不绕过其访问控制。" />
+        </StackPanel>
+    </local:MyCard>
+
+    <local:MyCard Title="说明与来源" CanSwap="True" IsSwaped="False" Margin="0,0,0,8">
+        <StackPanel Margin="24,20,24,16">
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush1}"
+                       Text="PCL 作者：龙腾猫跃。本工具是独立第三方扩展，不由 PCL 官方提供或背书；不包含启动器、不提供盗版授权，也不绕过正版验证。" />
+            <local:MyButton Margin="0,8,0,4" Height="34" Text="支持 PCL 作者 龙腾猫跃" EventType="打开网页"
+                EventData="https://meloong.com/afd/a/LTCat" />
+            <local:MyButton Margin="0,4,0,4" Height="34" Text="查看 PCL 上游仓库" EventType="打开网页"
+                EventData="https://github.com/Meloong-Git/PCL" />
+        </StackPanel>
+    </local:MyCard>
+</StackPanel>
