@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.6.3
+// PCL 下载恢复工具 v1.6.4
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -112,9 +112,11 @@ namespace PclDownloadRestore
         public string Id { get; set; }
         public string Title { get; set; }
         public string Description { get; set; }
+        public string TypeLabel { get; set; }
         public override string ToString()
         {
-            return Title + "  —  " + Description;
+            string prefix = string.IsNullOrEmpty(TypeLabel) ? "" : "[" + TypeLabel + "] ";
+            return prefix + Title + "  —  " + Description;
         }
     }
 
@@ -714,7 +716,7 @@ namespace PclDownloadRestore
 
             _projectType = new ComboBox();
             _projectType.DropDownStyle = ComboBoxStyle.DropDownList;
-            _projectType.Items.AddRange(new object[] { "Mod", "整合包", "资源包", "光影包" });
+            _projectType.Items.AddRange(new object[] { "Mod", "整合包", "数据包", "资源包", "光影包" });
             _projectType.SelectedIndex = 0;
             _projectType.SetBounds(58, 14, 110, 26);
             modrinthTab.Controls.Add(_projectType);
@@ -949,7 +951,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.6.3）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.6.4）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1687,6 +1689,7 @@ namespace PclDownloadRestore
             switch (Convert.ToString(_projectType.SelectedItem))
             {
                 case "Mod": return "mod";
+                case "数据包": return "datapack";
                 case "资源包": return "resourcepack";
                 case "光影包": return "shader";
                 default: return "modpack";
@@ -1715,9 +1718,10 @@ namespace PclDownloadRestore
 
         private List<ProjectEntry> RunModrinthSearch(string query, string type, CancellationToken token)
         {
-            string url = "https://api.modrinth.com/v2/search?query=" + Uri.EscapeDataString(query) +
-                         "&facets=" + Uri.EscapeDataString("[[\"project_type:" + type + "\"]]") +
-                         "&limit=30&index=relevance";
+            string url = "https://api.modrinth.com/v2/search?query=" + Uri.EscapeDataString(query);
+            if (!string.IsNullOrEmpty(type))
+                url += "&facets=" + Uri.EscapeDataString("[[\"project_type:" + type + "\"]]");
+            url += "&limit=30&index=relevance";
             string json = Engine.GetString(url, "direct", this);
             var response = Engine.ParseObject(json);
             var hits = Engine.Arr(response.ContainsKey("hits") ? response["hits"] : null);
@@ -1733,11 +1737,25 @@ namespace PclDownloadRestore
                     {
                         Id = Engine.Str(item.ContainsKey("project_id") ? item["project_id"] : null),
                         Title = Engine.Str(item.ContainsKey("title") ? item["title"] : null),
-                        Description = Engine.Str(item.ContainsKey("description") ? item["description"] : null)
+                        Description = Engine.Str(item.ContainsKey("description") ? item["description"] : null),
+                        TypeLabel = TypeName(Engine.Str(item.ContainsKey("project_type") ? item["project_type"] : null))
                     });
                 }
             }
             return projects;
+        }
+
+        private static string TypeName(string type)
+        {
+            switch (type)
+            {
+                case "mod": return "Mod";
+                case "modpack": return "整合包";
+                case "datapack": return "数据包";
+                case "resourcepack": return "资源包";
+                case "shader": return "光影";
+                default: return type;
+            }
         }
 
         private void DoSearch(CancellationToken token)
@@ -1755,6 +1773,11 @@ namespace PclDownloadRestore
                     LogLine("中文关键词没结果，改用英文名重试：" + alias);
                     projects = RunModrinthSearch(alias, type, token);
                 }
+            }
+            if (projects.Count == 0)
+            {
+                LogLine("当前类型没结果，改为全类型再搜一次。");
+                projects = RunModrinthSearch(query, null, token);
             }
             _projects = projects;
             BeginInvoke(new Action(delegate
