@@ -15,6 +15,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
@@ -208,8 +209,13 @@ namespace PclDownloadRestore
                 var done = new ManualResetEventSlim(false);
                 Exception error = null;
                 bool cancelled = false;
+                int lastPercent = -1;
                 wc.DownloadProgressChanged += delegate(object s, DownloadProgressChangedEventArgs e)
                 {
+                    // 并发下载时多个文件会同时上报，按 10% 档位节流，避免刷爆界面。
+                    int bucket = e.ProgressPercentage / 10;
+                    if (bucket == lastPercent) return;
+                    lastPercent = bucket;
                     sink.Progress(e.ProgressPercentage, 100);
                 };
                 wc.DownloadFileCompleted += delegate(object s, AsyncCompletedEventArgs e)
@@ -401,7 +407,7 @@ namespace PclDownloadRestore
         {
             Text = Program.AppName;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(880, 700);
+            ClientSize = new Size(880, 790);
             MinimumSize = new Size(780, 640);
             Font = new Font("Microsoft YaHei UI", 9F);
             BackColor = Color.FromArgb(245, 248, 252);
@@ -621,7 +627,7 @@ namespace PclDownloadRestore
             _log.ReadOnly = true;
             _log.ScrollBars = ScrollBars.Vertical;
             _log.Font = new Font("Consolas", 8.5F);
-            _log.SetBounds(20, 644, 830, 46);
+            _log.SetBounds(20, 644, 830, 128);
             Controls.Add(_log);
 
             AcceptButton = null;
@@ -649,9 +655,49 @@ namespace PclDownloadRestore
                 if (e.KeyCode == Keys.Enter && !_worker.IsBusy) { StartJob(JobKind.Search); e.SuppressKeyPress = true; }
             };
 
-            AppendLog("PCL 下载恢复工具已启动（v1.1.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.3.0）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
+
+            LoadSettings();
+            FormClosing += delegate { SaveSettings(); };
+        }
+
+        private static string SettingsFile
+        {
+            get { return Path.Combine(Application.StartupPath, "PCLDownloadRestore.ini"); }
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                if (!File.Exists(SettingsFile)) return;
+                foreach (string line in File.ReadAllLines(SettingsFile, Encoding.UTF8))
+                {
+                    int index = line.IndexOf('=');
+                    if (index <= 0) continue;
+                    string key = line.Substring(0, index).Trim();
+                    string value = line.Substring(index + 1).Trim();
+                    if (value.Length == 0) continue;
+                    if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value;
+                    else if (key == "outputDir") _outputDir.Text = value;
+                }
+            }
+            catch { }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                File.WriteAllLines(SettingsFile, new string[]
+                {
+                    "gameRoot=" + _gameRoot.Text,
+                    "outputDir=" + _outputDir.Text
+                }, new UTF8Encoding(false));
+            }
+            catch { }
         }
 
         private enum JobKind
@@ -1062,14 +1108,31 @@ namespace PclDownloadRestore
 
             int total = tasks.Count;
             int done = 0;
-            foreach (DownloadTask task in tasks)
+            if (total > 0)
             {
-                token.ThrowIfCancellationRequested();
-                done++;
-                Report(string.Format("下载依赖与资源：{0} / {1} — {2}", done, total, task.Label));
-                ReportProgressCount(done, total);
-                Engine.Download(task.Url, task.Path, task.Hash, task.Algo, task.Size, task.Kind, this, token);
-                if (done % 20 == 0) LogLine(string.Format("已完成 {0} / {1} 个文件。", done, total));
+                var options = new ParallelOptions();
+                options.MaxDegreeOfParallelism = 4;
+                options.CancellationToken = token;
+                try
+                {
+                    Parallel.ForEach(tasks, options, delegate(DownloadTask task)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        int current = Interlocked.Increment(ref done);
+                        Report(string.Format("下载文件：{0} / {1} — {2}", current, total, task.Label));
+                        ReportProgressCount(current, total);
+                        Engine.Download(task.Url, task.Path, task.Hash, task.Algo, task.Size, task.Kind, this, token);
+                        if (current % 25 == 0) LogLine(string.Format("已完成 {0} / {1} 个文件。", current, total));
+                    });
+                }
+                catch (AggregateException aggregate)
+                {
+                    foreach (Exception inner in aggregate.InnerExceptions)
+                    {
+                        if (inner is OperationCanceledException) throw new OperationCanceledException(token);
+                        throw new Exception(inner.Message);
+                    }
+                }
             }
             ReportProgressCount(total, Math.Max(1, total));
         }

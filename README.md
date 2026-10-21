@@ -18,7 +18,7 @@
 
 ## 功能
 
-- **原版 Minecraft**：读取 Mojang 公开版本清单，下载指定版本 JSON、客户端 JAR、适用于 Windows 的库/原生库、日志配置，以及可选的 Assets。对有元数据校验值的文件验证 SHA-1 和文件大小；官方源失败时按 PCL 上游公开的域名映射尝试 BMCLAPI，并有限重试。
+- **原版 Minecraft**：读取 Mojang 公开版本清单，下载指定版本 JSON、客户端 JAR、适用于 Windows 的库/原生库、日志配置，以及可选的 Assets。对有元数据校验值的文件验证 SHA-1 和文件大小；官方源失败时按 PCL 上游公开的域名映射尝试 BMCLAPI，并有限重试。**依赖与资源按 4 线程并发下载**，同时自动记住上次选用的游戏目录与保存目录（`PCLDownloadRestore.ini`）。
 - **Modrinth**：搜索整合包、Mod、资源包和光影包；可按游戏版本及加载器筛选；下载 Modrinth 发布文件并验证 SHA-512。
 - **整合包安装**：在 Modrinth 页签点「安装 .mrpack 整合包」，选择 `.mrpack` 后会自动：下载对应原版文件 → 读取 Fabric / Quilt 加载器配置并下载其库 → 下载整合包内所有文件（SHA-512 校验）→ 复制 `overrides/` → 生成 `versions/<实例名>/<实例名>.json`。完成后 PCL 刷新版本列表即可看到新实例。
 - **直接下载**：对用户明确输入的 HTTP/HTTPS 链接下载文件。HTTP 会显示风险提示；已存在的文件不会被静默覆盖。
@@ -78,4 +78,4 @@
 
 本工具独立实现下载逻辑，只参考 PCL 已公开的自定义事件说明、下载源 URL 映射和许可指南，没有复制 PCL 源码。PCL 项目作者为龙腾猫跃；上游仓库：<https://github.com/Meloong-Git/PCL>；赞助链接：<https://meloong.com/afd/a/LTCat>；上游许可/合理使用指南：<https://github.com/Meloong-Git/PCL/blob/main/LICENCE>。
 
-本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`Custom.xaml`、`PCLDownloadFix.ps1`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.1.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
+本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.3.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
