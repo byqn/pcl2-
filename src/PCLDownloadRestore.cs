@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.8.0
+// PCL 下载恢复工具 v1.8.1
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -304,6 +304,7 @@ namespace PclDownloadRestore
             request.Timeout = 30000;
             request.ReadWriteTimeout = 60000;
             if (Proxy != null) request.Proxy = Proxy;
+
             if (resumeFrom > 0) request.AddRange(resumeFrom);
 
             using (var response = (HttpWebResponse)request.GetResponse())
@@ -351,6 +352,7 @@ namespace PclDownloadRestore
                     request.Timeout = 30000;
                     request.ReadWriteTimeout = 60000;
                     if (Proxy != null) request.Proxy = Proxy;
+
                     using (var response = (HttpWebResponse)request.GetResponse())
                     using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                     {
@@ -839,6 +841,19 @@ namespace PclDownloadRestore
             var loaderTab = new TabPage("加载器");
             tabs.TabPages.Add(loaderTab);
 
+            var helpTab = new TabPage("使用说明");
+            tabs.TabPages.Add(helpTab);
+            var helpBox = new TextBox();
+            helpBox.Multiline = true;
+            helpBox.ReadOnly = true;
+            helpBox.ScrollBars = ScrollBars.Vertical;
+            helpBox.BorderStyle = BorderStyle.None;
+            helpBox.Font = new Font("Microsoft YaHei UI", 9.5F);
+            helpBox.BackColor = Color.White;
+            helpBox.SetBounds(20, 16, 790, 340);
+            helpBox.Text = BuildHelpText();
+            helpTab.Controls.Add(helpBox);
+
             var loaderTypeLabel = new Label();
             loaderTypeLabel.Text = "类型";
             loaderTypeLabel.SetBounds(16, 18, 40, 22);
@@ -989,7 +1004,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.8.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.8.1）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1043,6 +1058,43 @@ namespace PclDownloadRestore
         private static string SettingsFile
         {
             get { return Path.Combine(Application.StartupPath, "PCLDownloadRestore.ini"); }
+        }
+
+        private static string BuildHelpText()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("【第一次用，按这个顺序】");
+            sb.AppendLine("1. 打开 PCL → 设置 → 启动，找到「游戏目录」，把这个路径记下来。");
+            sb.AppendLine("2. 打开本工具，看顶部「Minecraft 游戏目录」：点「自动查找」一般会自动填好；没填对就点「选择…」手动选。");
+            sb.AppendLine("3. 切到「下载游戏」页签：");
+            sb.AppendLine("   ① Minecraft 版本：选你要的版本（默认最新正式版）");
+            sb.AppendLine("   ② 加载器：只玩原版就选「无（仅原版）」；要 Mod 就选 Fabric / Forge / NeoForge / OptiFine");
+            sb.AppendLine("   ③ 加载器版本：选好加载器后会自动加载，默认最新，也可以下拉挑");
+            sb.AppendLine("   ④ 点「开始下载」，等它跑完");
+            sb.AppendLine("4. 回到 PCL，点版本列表右上角的刷新，就能看到新版本了。");
+            sb.AppendLine();
+            sb.AppendLine("【装整合包】");
+            sb.AppendLine("方法一：切到「Modrinth / 整合包」页签 → 类型选「整合包」→ 搜索 → 选中 → 点「安装 .mrpack 整合包…」");
+            sb.AppendLine("方法二：把 .mrpack / .zip / .7z / .rar 文件直接拖进本窗口");
+            sb.AppendLine("方法三：CurseForge 整合包（zip）同样拖进来；底部填好 CF Key 后会自动补齐 mods");
+            sb.AppendLine();
+            sb.AppendLine("【填 CurseForge Key（可选）】");
+            sb.AppendLine("1. 打开 https://console.curseforge.com/ 并登录");
+            sb.AppendLine("2. 点 Create API Key，复制生成的 key");
+            sb.AppendLine("3. 粘到底部「CurseForge API Key」框，会自动保存，下次不用重填");
+            sb.AppendLine();
+            sb.AppendLine("【常见问题】");
+            sb.AppendLine("· 搜不到东西：换英文关键词试试；类型换一下；工具也会自动放宽搜索。");
+            sb.AppendLine("· 安装器退出码 1：基本是 Java 问题，需要装 Java 17 或更高版本。");
+            sb.AppendLine("· 7z / rar 解压失败：装一个 7-Zip（https://7-zip.org/）就好。");
+            sb.AppendLine("· 下载断了：重新点一次，会从断点继续，不用重下。");
+            sb.AppendLine("· 想知道哪里出错：看本工具同目录的 PCLDownloadRestore.log，最后几行就是原因。");
+            sb.AppendLine("· 主页没出现：PCL 设置 → 个性化 → 主页 → 选「本地文件」→ 点「刷新主页」。");
+            sb.AppendLine();
+            sb.AppendLine("【免责说明】");
+            sb.AppendLine("本工具是第三方扩展，不修改 PCL，不绕过正版验证，不提供盗版内容。");
+            sb.AppendLine("下载的文件来自 Mojang、BMCLAPI、Modrinth、CurseForge 或你自己输入的链接。");
+            return sb.ToString();
         }
 
         private void ApplyOpacity(int percent)

@@ -30,6 +30,17 @@ Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
     </StackPanel>
 </local:MyCard>
 
+<local:MyCard Title="使用说明（点开看）" CanSwap="True" IsSwapped="True" Margin="0,0,0,12">
+    <StackPanel Margin="25,40,23,15">
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush1}"
+                   Text="第一次用：① 点下面的「打开下载中心」→ ② 顶部点「自动查找」确认游戏目录 → ③ 在「下载游戏」页选版本和加载器 → ④ 点「开始下载」→ ⑤ 回 PCL 刷新版本列表。" />
+        <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{DynamicResource ColorBrush2}"
+                   Text="装整合包：把 .mrpack / .zip / .7z / .rar 直接拖进工具窗口；或在 Modrinth 页签搜索后点「安装」。报错时看工具目录下的 PCLDownloadRestore.log，最后几行就是原因。" />
+        <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{DynamicResource ColorBrush2}"
+                   Text="工具里有完整的「使用说明」页签，遇到问题先去那里看。" />
+    </StackPanel>
+</local:MyCard>
+
 <local:MyCard Title="说明与来源" CanSwap="True" IsSwapped="True" Margin="0,0,0,8">
     <StackPanel Margin="25,40,23,15">
         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource ColorBrush1}"
