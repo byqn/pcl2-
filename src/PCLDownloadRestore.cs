@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.5.2
+// PCL 下载恢复工具 v1.5.3
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -831,7 +831,13 @@ namespace PclDownloadRestore
                 if (e.KeyCode == Keys.Enter && !_worker.IsBusy) { StartJob(JobKind.Search); e.SuppressKeyPress = true; }
             };
 
-            AppendLog("PCL 下载恢复工具已启动（v1.5.2）。");
+            try
+            {
+                File.WriteAllText(Path.Combine(Application.StartupPath, "PCLDownloadRestore.log"), "", new UTF8Encoding(false));
+            }
+            catch { }
+
+            AppendLog("PCL 下载恢复工具已启动（v1.5.3）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -1168,9 +1174,17 @@ namespace PclDownloadRestore
                 BeginInvoke(new Action<string>(AppendLog), text);
                 return;
             }
-            _log.AppendText("[" + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "] " + text + Environment.NewLine);
+            string stamp = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            _log.AppendText("[" + stamp + "] " + text + Environment.NewLine);
             _log.SelectionStart = _log.TextLength;
             _log.ScrollToCaret();
+            try
+            {
+                File.AppendAllText(Path.Combine(Application.StartupPath, "PCLDownloadRestore.log"),
+                    "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "] " + text + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch { }
         }
 
         private void DoLoadVersions(CancellationToken token)
