@@ -6,10 +6,12 @@
 
 | 文件 | 用途 |
 |---|---|
-| `PCLDownloadRestore.exe` | 下载中心主程序（.NET Framework WinForms，单文件，无需安装） |
+| `PCLDownloadRestore-Setup.exe` | **安装程序**（单文件，安装内容已内嵌，双击即用） |
+| `PCLDownloadRestore.exe` | 下载中心主程序（.NET Framework WinForms，绿色版，无需安装） |
 | `Custom.xaml` | PCL 自定义主页面板，按钮指向上面的 exe |
-| `install.cmd` / `install.ps1` | 一键安装：复制 exe 与主页到 PCL 目录 |
-| `src/PCLDownloadRestore.cs` | exe 的完整 C# 源码（MIT） |
+| `install.cmd` / `install.ps1` | 备用安装方式（不解压 Setup 时使用） |
+| `src/PCLDownloadRestore.cs` | 下载中心完整 C# 源码（MIT） |
+| `src/Setup.cs` | 安装程序完整 C# 源码（MIT） |
 | `PCLDownloadFix.ps1` | 旧版 PowerShell 实现，保留作备用 |
 
 > 非 PCL 官方插件或官方背书。PCL 2.99.0.0 发布说明因遵守相关法律法规暂时移除 MC 下载功能；对应实现还启用了 `RestrictMcDownload`，并限制整合包安装：<https://github.com/Meloong-Git/PCL/releases/tag/2.99.0.0> · <https://github.com/Meloong-Git/PCL/commit/e4b0489a22cfd4bc57a18fc1e2ac66d5c18e7fc1.patch>。PCL 自定义主页事件文档：<https://github.com/Meloong-Git/PCL/wiki/%E8%87%AA%E5%AE%9A%E4%B9%89%E4%BA%8B%E4%BB%B6>。
@@ -23,13 +25,16 @@
 
 ## 安装（推荐一键）
 
-1. 下载整个仓库或最新压缩包并解压。
-2. 双击 `install.cmd` → 在弹出的窗口里选中你的 **PCL.exe** → 它会自动：
-   - 把 `PCLDownloadRestore.exe` 复制到 PCL.exe 同目录（已有同名文件会先备份为 `.bak-时间戳`）
-   - 如果同目录有 `PCLDownloadFix.ps1`，也一并复制（备用）
-   - 把 `Custom.xaml` 复制到 `PCL\Custom.xaml`（同样先备份）
+1. 下载并运行 **`PCLDownloadRestore-Setup.exe`**（单文件安装程序，无需解压）。
+2. 点「选择 PCL.exe 并安装」，选中你的 **PCL.exe** → 安装程序会自动：
+   - 把 `PCLDownloadRestore.exe` 释放到 PCL.exe 同目录（已有同名文件先备份为 `.bak-时间戳`）
+   - 把 `Custom.xaml` 释放到 `PCL\Custom.xaml`（同样先备份）
 3. 重启 PCL → **设置 → 个性化 → 主页**（在页面靠下位置）→ 选择 **本地文件** → 点 **刷新主页**。
 4. 主页出现「PCL 下载恢复工具」卡片，点 **打开下载中心**。
+
+### 备用安装方式
+
+如果你不想运行安装程序，也可以解压后双击 `install.cmd`，效果相同（但需要系统 PowerShell）。
 
 ### 手动安装
 
