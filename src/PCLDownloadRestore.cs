@@ -1,4 +1,4 @@
-// PCL 下载恢复工具（第三方扩展）v1.4.0
+// PCL 下载恢复工具（第三方扩展）v1.4.1
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -23,7 +23,7 @@ namespace PclDownloadRestore
 {
     internal static class Program
     {
-        internal const string AppName = "PCL 下载恢复工具 v1.4.0（第三方扩展）";
+        internal const string AppName = "PCL 下载恢复工具 v1.4.1（第三方扩展）";
         internal const string UserAgent = "PCL-Download-Restore/1.1.0";
 
         [STAThread]
@@ -32,9 +32,47 @@ namespace PclDownloadRestore
             try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; }
             catch { }
             ServicePointManager.Expect100Continue = false;
+            string[] args = Environment.GetCommandLineArgs();
+            if (args.Length > 1 && string.Equals(args[1], "--selftest", StringComparison.OrdinalIgnoreCase))
+            {
+                RunSelfTest();
+                return;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
+        }
+
+        private static void RunSelfTest()
+        {
+            var lines = new List<string>();
+            try
+            {
+                var versions = Engine.FetchManifest(null);
+                lines.Add("VERSIONS=" + versions.Count.ToString(CultureInfo.InvariantCulture));
+                if (versions.Count > 0) lines.Add("FIRST=" + versions[0].Id + " " + versions[0].Url);
+                var modrinth = Engine.GetString("https://api.modrinth.com/v2/search?query=sodium&limit=3", "direct", null);
+                var parsed = Engine.ParseObject(modrinth);
+                var hits = Engine.Arr(parsed.ContainsKey("hits") ? parsed["hits"] : null);
+                lines.Add("MODRINTH_HITS=" + (hits == null ? -1 : hits.Length));
+                if (hits != null && hits.Length > 0)
+                {
+                    var first = Engine.Obj(hits[0]);
+                    lines.Add("MODRINTH_FIRST=" + (first != null && first.ContainsKey("title") ? Engine.Str(first["title"]) : "?"));
+                }
+                lines.Add("RESULT=OK");
+            }
+            catch (Exception ex)
+            {
+                lines.Add("RESULT=FAIL");
+                lines.Add("ERROR=" + ex.Message);
+            }
+            try
+            {
+                File.WriteAllLines(Path.Combine(Application.StartupPath, "selftest.log"), lines.ToArray(), new UTF8Encoding(false));
+            }
+            catch { }
+            Environment.Exit(0);
         }
     }
 
@@ -275,13 +313,16 @@ namespace PclDownloadRestore
             {
                 try
                 {
-                    using (var wc = new WebClient())
+                    var request = (HttpWebRequest)WebRequest.Create(candidate);
+                    request.UserAgent = Program.UserAgent;
+                    request.Accept = "application/json";
+                    request.Timeout = 30000;
+                    request.ReadWriteTimeout = 60000;
+                    if (Proxy != null) request.Proxy = Proxy;
+                    using (var response = (HttpWebResponse)request.GetResponse())
+                    using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                     {
-                        if (Proxy != null) wc.Proxy = Proxy;
-                        wc.Headers.Add("User-Agent", Program.UserAgent);
-                        wc.Headers.Add("Accept", "application/json");
-                        wc.Encoding = Encoding.UTF8;
-                        return wc.DownloadString(candidate);
+                        return reader.ReadToEnd();
                     }
                 }
                 catch (Exception ex)
@@ -329,7 +370,11 @@ namespace PclDownloadRestore
 
         public static object[] Arr(object value)
         {
-            return value as object[];
+            var array = value as object[];
+            if (array != null) return array;
+            var list = value as System.Collections.ArrayList;
+            if (list != null) return list.ToArray();
+            return null;
         }
 
         public static string Str(object value)
@@ -695,7 +740,7 @@ namespace PclDownloadRestore
                 if (e.KeyCode == Keys.Enter && !_worker.IsBusy) { StartJob(JobKind.Search); e.SuppressKeyPress = true; }
             };
 
-            AppendLog("PCL 下载恢复工具已启动（v1.4.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.4.1）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
