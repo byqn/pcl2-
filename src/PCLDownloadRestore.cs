@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.7.0
+// PCL 下载恢复工具 v1.8.0
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -560,6 +560,9 @@ namespace PclDownloadRestore
             MinimumSize = new Size(780, 640);
             Font = new Font("Microsoft YaHei UI", 9F);
             BackColor = Color.FromArgb(245, 248, 252);
+            AllowDrop = true;
+            DragEnter += FormDragEnter;
+            DragDrop += FormDragDrop;
 
             var title = new Label();
             title.Text = "下载中心";
@@ -986,13 +989,14 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.7.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.8.0）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
             LoadSettings();
             FormClosing += delegate { SaveSettings(); };
             ApplyTheme();
+            EnableDrop(this);
             RefreshMcCombo();
         }
 
@@ -1205,11 +1209,67 @@ namespace PclDownloadRestore
             LoadLoaderVersions,
             InstallLoader,
             QuickInstall,
-            DownloadGame
+            DownloadGame,
+            InstallArchive
         }
 
         private JobKind _job;
         private object _jobArgument;
+
+        private void StartJobWithArgument(JobKind kind, object argument)
+        {
+            if (_worker.IsBusy) return;
+            _job = kind;
+            _jobArgument = argument;
+            _cts = new CancellationTokenSource();
+            _cancelButton.Enabled = true;
+            SetBusy(true);
+            _worker.RunWorkerAsync();
+        }
+
+        private static bool IsSupportedArchive(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext == ".mrpack" || ext == ".zip" || ext == ".7z" || ext == ".rar";
+        }
+
+        private void EnableDrop(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                child.AllowDrop = true;
+                child.DragEnter += FormDragEnter;
+                child.DragDrop += FormDragDrop;
+                if (child.HasChildren) EnableDrop(child);
+            }
+        }
+
+        private void FormDragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (files != null && files.Length == 1 && IsSupportedArchive(files[0]))
+                {
+                    e.Effect = DragDropEffects.Copy;
+                    return;
+                }
+            }
+            e.Effect = DragDropEffects.None;
+        }
+
+        private void FormDragDrop(object sender, DragEventArgs e)
+        {
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files == null || files.Length == 0) return;
+            string path = files[0];
+            if (!IsSupportedArchive(path)) return;
+            if (MessageBox.Show(this, "要安装这个整合包吗？\r\n\r\n" + path, Program.AppName,
+                    MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            LogLine("拖入文件：" + path);
+            StartJobWithArgument(JobKind.InstallArchive, path);
+        }
 
         private void StartJob(JobKind kind)
         {
@@ -1379,6 +1439,7 @@ namespace PclDownloadRestore
                     case JobKind.InstallLoader: DoInstallLoader((LoaderEntry)_jobArgument, token); break;
                     case JobKind.QuickInstall: DoQuickInstall(token); break;
                     case JobKind.DownloadGame: DoDownloadGame((GameRequest)_jobArgument, token); break;
+                    case JobKind.InstallArchive: DoInstallArchive((string)_jobArgument, token); break;
                 }
             }
             catch (OperationCanceledException)
@@ -2255,6 +2316,214 @@ namespace PclDownloadRestore
                 if (Directory.Exists(path)) System.Diagnostics.Process.Start("explorer.exe", "\"" + path + "\"");
             }
             catch { }
+        }
+
+        private void DoInstallArchive(string path, CancellationToken token)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            if (ext == ".mrpack")
+            {
+                DoInstallModpack(path, token);
+                return;
+            }
+            if (!IsSupportedArchive(path)) throw new Exception("不支持的格式：" + ext);
+            string work = Path.Combine(Path.GetTempPath(), "pcl-pack-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(work);
+            try
+            {
+                Report("解压 " + Path.GetFileName(path) + "…");
+                if (ext == ".zip")
+                {
+                    ZipFile.ExtractToDirectory(path, work);
+                }
+                else
+                {
+                    Extract7z(path, work);
+                }
+
+                string cfManifest = null;
+                foreach (string candidate in Directory.GetFiles(work, "manifest.json", SearchOption.AllDirectories))
+                {
+                    cfManifest = candidate;
+                    break;
+                }
+                if (cfManifest != null)
+                {
+                    InstallCurseForgePack(cfManifest, work, token);
+                    return;
+                }
+                InstallRawPack(work, Path.GetFileNameWithoutExtension(path), token);
+            }
+            finally
+            {
+                try { Directory.Delete(work, true); } catch { }
+            }
+        }
+
+        private static string Find7z()
+        {
+            string[] candidates = new string[]
+            {
+                @"C:\Program Files\7-Zip\7z.exe",
+                @"C:\Program Files (x86)\7-Zip\7z.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe")
+            };
+            foreach (string candidate in candidates)
+            {
+                if (File.Exists(candidate)) return candidate;
+            }
+            return "7z.exe";
+        }
+
+        private void Extract7z(string archive, string target)
+        {
+            string sevenZip = Find7z();
+            var startInfo = new System.Diagnostics.ProcessStartInfo();
+            startInfo.FileName = sevenZip;
+            startInfo.Arguments = "x -y -o\"" + target.TrimEnd('\\', '/') + "\" \"" + archive + "\"";
+            startInfo.UseShellExecute = false;
+            startInfo.CreateNoWindow = true;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
+            try
+            {
+                using (var process = System.Diagnostics.Process.Start(startInfo))
+                {
+                    process.WaitForExit();
+                    if (process.ExitCode != 0)
+                        throw new Exception("7-Zip 解压失败（退出码 " + process.ExitCode + "）。请安装 7-Zip，或改用 zip 格式。");
+                }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                throw new Exception("找不到 7-Zip。请安装 7-Zip（https://7-zip.org/）后重试，或把压缩包转成 zip。");
+            }
+        }
+
+        private void InstallRawPack(string workDir, string displayName, CancellationToken token)
+        {
+            string gameRoot = _gameRoot.Text.TrimEnd('\\', '/');
+            string mc = Convert.ToString(_dlMcBox.SelectedItem);
+            if (string.IsNullOrEmpty(mc))
+                throw new Exception("请先在「下载游戏」页选一个 Minecraft 版本，再拖入压缩包。");
+            string instance = MakeInstanceName(gameRoot, displayName);
+            string instanceDir = Path.Combine(Path.Combine(gameRoot, "versions"), instance);
+            Directory.CreateDirectory(instanceDir);
+
+            Report("复制整合包文件…");
+            CopyDirectory(workDir, instanceDir);
+
+            var stub = new Dictionary<string, object>();
+            stub["id"] = instance;
+            stub["inheritsFrom"] = mc;
+            stub["type"] = "release";
+            string now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            stub["time"] = now;
+            stub["releaseTime"] = now;
+            WriteJsonFile(stub, Path.Combine(instanceDir, instance + ".json"));
+
+            LogLine("压缩包已解压为实例：" + instance);
+            MessageBox.Show(this,
+                "整合包已安装为实例：" + instance + "\r\n\r\n回到 PCL 刷新版本列表即可看到。\r\n" +
+                "注意：这种压缩包不含加载器信息，请确认 PCL 里已装好 " + mc + " 对应的加载器版本。",
+                Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            OpenFolder(instanceDir);
+            Report("安装完成。");
+        }
+
+        private void InstallCurseForgePack(string manifestPath, string workDir, CancellationToken token)
+        {
+            string gameRoot = _gameRoot.Text.TrimEnd('\\', '/');
+            var manifest = Engine.ParseObject(File.ReadAllText(manifestPath, Encoding.UTF8));
+            var minecraft = manifest.ContainsKey("minecraft") ? Engine.Obj(manifest["minecraft"]) : null;
+            if (minecraft == null) throw new Exception("manifest.json 缺少 minecraft 字段。");
+            string mc = Engine.Str(minecraft.ContainsKey("version") ? minecraft["version"] : null);
+            if (string.IsNullOrEmpty(mc)) throw new Exception("manifest.json 没有指定 Minecraft 版本。");
+            string loaderId = null;
+            var loaders = Engine.Arr(minecraft.ContainsKey("modLoaders") ? minecraft["modLoaders"] : null);
+            if (loaders != null)
+            {
+                foreach (object raw in loaders)
+                {
+                    var loader = Engine.Obj(raw);
+                    if (loader == null) continue;
+                    loaderId = Engine.Str(loader.ContainsKey("id") ? loader["id"] : null);
+                    break;
+                }
+            }
+            string name = Engine.Str(manifest.ContainsKey("name") ? manifest["name"] : null);
+            if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(manifestPath);
+            string instance = MakeInstanceName(gameRoot, name);
+            string instanceDir = Path.Combine(Path.Combine(gameRoot, "versions"), instance);
+            Directory.CreateDirectory(instanceDir);
+
+            string overridesDir = Path.Combine(Path.GetDirectoryName(manifestPath), "overrides");
+            if (Directory.Exists(overridesDir))
+            {
+                Report("复制 overrides…");
+                CopyDirectory(overridesDir, instanceDir);
+            }
+
+            string inherits = mc;
+            if (!string.IsNullOrEmpty(loaderId) && loaderId.IndexOf('-') > 0)
+            {
+                string loaderVersion = loaderId.Substring(loaderId.IndexOf('-') + 1);
+                bool neo = loaderId.StartsWith("neoforge", StringComparison.OrdinalIgnoreCase);
+                string found = FindLoaderVersionDir(gameRoot, mc, loaderVersion, neo);
+                if (!string.IsNullOrEmpty(found)) inherits = found;
+            }
+            var stub = new Dictionary<string, object>();
+            stub["id"] = instance;
+            stub["inheritsFrom"] = inherits;
+            stub["type"] = "release";
+            string now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            stub["time"] = now;
+            stub["releaseTime"] = now;
+            WriteJsonFile(stub, Path.Combine(instanceDir, instance + ".json"));
+
+            int downloaded = 0;
+            int skipped = 0;
+            var files = Engine.Arr(manifest.ContainsKey("files") ? manifest["files"] : null);
+            if (files != null && !string.IsNullOrEmpty(Engine.CfKey))
+            {
+                foreach (object raw in files)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var file = Engine.Obj(raw);
+                    if (file == null) continue;
+                    string projectId = Engine.Str(file.ContainsKey("projectID") ? file["projectID"] : null);
+                    string fileId = Engine.Str(file.ContainsKey("fileID") ? file["fileID"] : null);
+                    if (string.IsNullOrEmpty(projectId) || string.IsNullOrEmpty(fileId)) continue;
+                    try
+                    {
+                        string json = Engine.GetCurseForgeJson("https://api.curseforge.com/v1/mods/" + projectId + "/files/" + fileId);
+                        var root = Engine.ParseObject(json);
+                        var data = root.ContainsKey("data") ? Engine.Obj(root["data"]) : null;
+                        if (data == null) { skipped++; continue; }
+                        string url = Engine.Str(data.ContainsKey("downloadUrl") ? data["downloadUrl"] : null);
+                        string fileName = Engine.Str(data.ContainsKey("fileName") ? data["fileName"] : null);
+                        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(fileName)) { skipped++; continue; }
+                        Report("下载模组：" + fileName);
+                        Engine.Download(url, Engine.SafeChild(instanceDir, "mods/" + fileName), null, "SHA1", 0, "curseforge", this, token);
+                        downloaded++;
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped++;
+                        LogLine("跳过 " + projectId + "：" + ex.Message);
+                    }
+                }
+            }
+
+            LogLine("CurseForge 整合包已安装：" + instance + "，下载模组 " + downloaded + " 个，跳过 " + skipped + " 个。");
+            string note = string.IsNullOrEmpty(Engine.CfKey)
+                ? "\r\n\r\n没有填 CurseForge Key，mods 未下载。填好 key 后重新拖入即可自动补齐。"
+                : "\r\n\r\n下载模组 " + downloaded + " 个，跳过 " + skipped + " 个（作者禁止第三方下载的需手动补）。";
+            MessageBox.Show(this,
+                "整合包已安装为实例：" + instance + "\r\n\r\n回到 PCL 刷新版本列表即可看到。" + note,
+                Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            OpenFolder(instanceDir);
+            Report("安装完成。");
         }
 
         private void DoInstallModpack(string archivePath, CancellationToken token)

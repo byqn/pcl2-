@@ -22,6 +22,7 @@
 - **Modrinth**：搜索 Mod、整合包、数据包、资源包和光影包；可按游戏版本及加载器筛选；下载 Modrinth 发布文件并验证 SHA-512。搜索无结果时会自动换英文别名、再放宽到全类型重搜。
 - **CurseForge（可选）**：在底部填入自己的 CurseForge API Key 后，搜索会同时查询 CurseForge 并合并结果（带 `· CF` 标记）。Key 只保存在本机 `PCLDownloadRestore.ini`，不会提交到仓库。申请地址：<https://console.curseforge.com/>。
 - **整合包安装**：在 Modrinth 页签点「安装 .mrpack 整合包」，**先弹出预览**（名称 / Minecraft 版本 / 加载器 / 文件数 / 总大小），确认后才开始。安装流程：下载对应原版文件 → **Fabric / Quilt** 读取官方 meta 下载加载器库，**Forge / NeoForge** 调用官方安装器（需本机有 Java）→ 下载整合包内所有文件（SHA-512 校验）→ 复制 `overrides/` → 生成 `versions/<实例名>/<实例名>.json`。完成后自动打开实例目录，PCL 刷新版本列表即可看到。
+- **拖入安装**：把 `.mrpack` / `.zip` / `.7z` / `.rar` 整合包直接拖进窗口即可安装。zip 会自动识别 CurseForge 格式（`manifest.json`），有 CF Key 时自动补齐 mods；7z/rar 需要本机安装 7-Zip。
 - **代理**：底部可填 `http://127.0.0.1:7890` 之类的 HTTP 代理，对所有请求生效，留空即直连。
 - **加载器下载安装**（「加载器」页签）：选 Forge / NeoForge / Fabric / OptiFine 和 Minecraft 版本，列出该版本下全部可用加载器版本并一键安装。
   - Forge：读取 `maven.minecraftforge.net` 官方清单（5000+ 版本），下载安装器并调用 Java 静默安装。
@@ -85,4 +86,4 @@
 
 本工具独立实现下载逻辑，只参考 PCL 已公开的自定义事件说明、下载源 URL 映射和许可指南，没有复制 PCL 源码。PCL 项目作者为龙腾猫跃；上游仓库：<https://github.com/Meloong-Git/PCL>；赞助链接：<https://meloong.com/afd/a/LTCat>；上游许可/合理使用指南：<https://github.com/Meloong-Git/PCL/blob/main/LICENCE>。
 
-本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.7.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
+本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.8.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
