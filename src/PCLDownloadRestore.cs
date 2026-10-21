@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.5.3
+// PCL 下载恢复工具 v1.5.4
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -837,7 +837,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.5.3）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.5.4）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -848,11 +848,17 @@ namespace PclDownloadRestore
         private static string DetectGameRoot()
         {
             string baseDir = Application.StartupPath;
-            try
+            // PCL 不同版本可能把设置放在 exe 同级或 PCL 子目录，两个都看，外层优先。
+            string[] inis = new string[]
             {
-                string ini = Path.Combine(baseDir, "PCL", "Setup.ini");
-                if (File.Exists(ini))
+                Path.Combine(baseDir, "Setup.ini"),
+                Path.Combine(baseDir, "PCL", "Setup.ini")
+            };
+            foreach (string ini in inis)
+            {
+                try
                 {
+                    if (!File.Exists(ini)) continue;
                     foreach (string line in File.ReadAllLines(ini, Encoding.UTF8))
                     {
                         if (!line.StartsWith("LaunchFolderSelect:", StringComparison.OrdinalIgnoreCase)) continue;
@@ -863,18 +869,18 @@ namespace PclDownloadRestore
                             string rest = value.Substring(1).TrimStart('\\', '/');
                             value = Path.Combine(baseDir, rest);
                         }
-                        if (Directory.Exists(value)) return Path.GetFullPath(value);
+                        if (Directory.Exists(value)) return Path.GetFullPath(value).TrimEnd('\\', '/');
                     }
                 }
+                catch { }
             }
-            catch { }
             foreach (string candidate in new string[]
             {
                 Path.Combine(baseDir, ".minecraft"),
                 Path.Combine(baseDir, "minecraft")
             })
             {
-                if (Directory.Exists(candidate)) return candidate;
+                if (Directory.Exists(candidate)) return candidate.TrimEnd('\\', '/');
             }
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
         }
@@ -896,8 +902,8 @@ namespace PclDownloadRestore
                     string key = line.Substring(0, index).Trim();
                     string value = line.Substring(index + 1).Trim();
                     if (value.Length == 0) continue;
-                    if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value;
-                    else if (key == "outputDir") _outputDir.Text = value;
+                    if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value.TrimEnd('\\', '/');
+                    else if (key == "outputDir") _outputDir.Text = value.TrimEnd('\\', '/');
                     else if (key == "proxy") { _proxyBox.Text = value; Engine.SetProxy(value); }
                 }
             }
@@ -910,8 +916,8 @@ namespace PclDownloadRestore
             {
                 File.WriteAllLines(SettingsFile, new string[]
                 {
-                    "gameRoot=" + _gameRoot.Text,
-                    "outputDir=" + _outputDir.Text,
+                    "gameRoot=" + _gameRoot.Text.TrimEnd('\\', '/'),
+                    "outputDir=" + _outputDir.Text.TrimEnd('\\', '/'),
                     "proxy=" + _proxyBox.Text
                 }, new UTF8Encoding(false));
             }
@@ -1627,6 +1633,7 @@ namespace PclDownloadRestore
                 string installer = Path.Combine(tempDir, "installer.jar");
                 Report("下载 " + (neoForge ? "NeoForge" : "Forge") + " 安装器…");
                 Engine.Download(installerUrl, installer, null, "SHA1", 0, "direct", this, token);
+                LogLine("安装目标目录：" + gameRoot.TrimEnd('\\', '/'));
                 Report("运行安装器（需要联网下载库，可能要几分钟）…");
                 RunJavaInstaller(java, installer, gameRoot, token);
             }
@@ -1638,9 +1645,16 @@ namespace PclDownloadRestore
 
         private void RunJavaInstaller(string java, string installer, string gameRoot, CancellationToken token)
         {
+            // 关键：路径末尾不能有反斜杠，否则 "C:\path\" 里的 \" 会被 Java 当成转义引号，
+            // 安装器会拿到带引号的路径并报 “There is no Minecraft installation”。
+            string rootArg = gameRoot.TrimEnd('\\', '/');
+            if (!Directory.Exists(rootArg)) Directory.CreateDirectory(rootArg);
+            string versionsDir = Path.Combine(rootArg, "versions");
+            if (!Directory.Exists(versionsDir)) Directory.CreateDirectory(versionsDir);
+
             var startInfo = new System.Diagnostics.ProcessStartInfo();
             startInfo.FileName = java;
-            startInfo.Arguments = "-jar \"" + installer + "\" --installClient \"" + gameRoot + "\"";
+            startInfo.Arguments = "-jar \"" + installer.TrimEnd('\\', '/') + "\" --installClient \"" + rootArg + "\"";
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;
             startInfo.RedirectStandardOutput = true;
