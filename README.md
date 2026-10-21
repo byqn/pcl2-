@@ -84,4 +84,4 @@
 
 本工具独立实现下载逻辑，只参考 PCL 已公开的自定义事件说明、下载源 URL 映射和许可指南，没有复制 PCL 源码。PCL 项目作者为龙腾猫跃；上游仓库：<https://github.com/Meloong-Git/PCL>；赞助链接：<https://meloong.com/afd/a/LTCat>；上游许可/合理使用指南：<https://github.com/Meloong-Git/PCL/blob/main/LICENCE>。
 
-本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.6.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
+本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.6.1` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。

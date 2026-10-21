@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.6.0
+// PCL 下载恢复工具 v1.6.1
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -512,6 +512,7 @@ namespace PclDownloadRestore
         private readonly ComboBox _dlLoaderBox;
         private readonly ComboBox _dlLoaderVersionBox;
         private readonly Button _dlStartBtn;
+        private string _bgImagePath;
         private readonly Label _status;
         private readonly ProgressBar _progress;
         private readonly Button _cancelButton;
@@ -533,11 +534,18 @@ namespace PclDownloadRestore
             BackColor = Color.FromArgb(245, 248, 252);
 
             var title = new Label();
-            title.Text = "下载中心 · 官方文件校验 · 镜像自动重试";
-            title.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
-            title.ForeColor = Color.FromArgb(35, 93, 170);
-            title.SetBounds(18, 12, 700, 30);
+            title.Text = "下载中心";
+            title.Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold);
+            title.ForeColor = Color.FromArgb(30, 80, 150);
+            title.BackColor = Color.Transparent;
+            title.SetBounds(18, 12, 320, 34);
             Controls.Add(title);
+
+            var bgButton = new Button();
+            bgButton.Text = "换背景";
+            bgButton.SetBounds(748, 15, 110, 30);
+            Controls.Add(bgButton);
+            bgButton.Click += delegate { ChangeBackground(); };
 
             var rootLabel = new Label();
             rootLabel.Text = "Minecraft 游戏目录（应为包含 versions / libraries / assets 的实例根目录）";
@@ -571,6 +579,11 @@ namespace PclDownloadRestore
 
             var tabs = new TabControl();
             tabs.SetBounds(18, 108, 844, 420);
+            tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+            tabs.ItemSize = new Size(112, 34);
+            tabs.SizeMode = TabSizeMode.Fixed;
+            tabs.BackColor = Color.White;
+            tabs.DrawItem += DrawTabItem;
             Controls.Add(tabs);
 
             var downloadTab = new TabPage("下载游戏");
@@ -918,12 +931,13 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.6.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.6.1）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
             LoadSettings();
             FormClosing += delegate { SaveSettings(); };
+            ApplyTheme();
             RefreshMcCombo();
         }
 
@@ -972,6 +986,103 @@ namespace PclDownloadRestore
             get { return Path.Combine(Application.StartupPath, "PCLDownloadRestore.ini"); }
         }
 
+        private void ApplyBackground(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                {
+                    BackgroundImage = null;
+                    BackColor = Color.FromArgb(245, 248, 252);
+                    return;
+                }
+                using (var image = Image.FromFile(path))
+                {
+                    BackgroundImage = new Bitmap(image);
+                }
+                BackgroundImageLayout = ImageLayout.Zoom;
+                BackColor = Color.FromArgb(28, 34, 44);
+            }
+            catch { }
+        }
+
+        private void ChangeBackground()
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "选择背景图片";
+                dialog.Filter = "图片 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp|所有文件 (*.*)|*.*";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                _bgImagePath = dialog.FileName;
+                ApplyBackground(_bgImagePath);
+            }
+        }
+
+        private void ApplyTheme()
+        {
+            var accent = Color.FromArgb(42, 111, 190);
+            ApplyButtonTheme(this, accent);
+            foreach (TabControl tabs in FindTabs(this))
+            {
+                foreach (TabPage page in tabs.TabPages) page.BackColor = Color.White;
+            }
+        }
+
+        private static IEnumerable<TabControl> FindTabs(Control parent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                var tabs = child as TabControl;
+                if (tabs != null)
+                {
+                    yield return tabs;
+                    continue;
+                }
+                foreach (TabControl nested in FindTabs(child)) yield return nested;
+            }
+        }
+
+        private static void ApplyButtonTheme(Control parent, Color accent)
+        {
+            foreach (Control child in parent.Controls)
+            {
+                var button = child as Button;
+                if (button != null)
+                {
+                    button.FlatStyle = FlatStyle.Flat;
+                    button.FlatAppearance.BorderSize = 0;
+                    button.BackColor = accent;
+                    button.ForeColor = Color.White;
+                    button.Cursor = Cursors.Hand;
+                }
+                if (child.HasChildren) ApplyButtonTheme(child, accent);
+            }
+        }
+
+        private void DrawTabItem(object sender, DrawItemEventArgs e)
+        {
+            var control = (TabControl)sender;
+            if (e.Index < 0 || e.Index >= control.TabPages.Count) return;
+            TabPage page = control.TabPages[e.Index];
+            bool selected = e.Index == control.SelectedIndex;
+            Rectangle bounds = e.Bounds;
+
+            using (var back = new SolidBrush(selected ? Color.White : Color.FromArgb(228, 236, 248)))
+            {
+                e.Graphics.FillRectangle(back, bounds);
+            }
+            if (selected)
+            {
+                using (var accent = new SolidBrush(Color.FromArgb(42, 111, 190)))
+                {
+                    e.Graphics.FillRectangle(accent, bounds.Left + 10, bounds.Bottom - 3, bounds.Width - 20, 3);
+                }
+            }
+            TextRenderer.DrawText(e.Graphics, page.Text, control.Font, bounds,
+                selected ? Color.FromArgb(28, 55, 95) : Color.FromArgb(95, 110, 130),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
         private void LoadSettings()
         {
             try
@@ -987,6 +1098,7 @@ namespace PclDownloadRestore
                     if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value.TrimEnd('\\', '/');
                     else if (key == "outputDir") _outputDir.Text = value.TrimEnd('\\', '/');
                     else if (key == "proxy") { _proxyBox.Text = value; Engine.SetProxy(value); }
+                    else if (key == "bgImagePath") { _bgImagePath = value; ApplyBackground(value); }
                 }
             }
             catch { }
@@ -1000,7 +1112,8 @@ namespace PclDownloadRestore
                 {
                     "gameRoot=" + _gameRoot.Text.TrimEnd('\\', '/'),
                     "outputDir=" + _outputDir.Text.TrimEnd('\\', '/'),
-                    "proxy=" + _proxyBox.Text
+                    "proxy=" + _proxyBox.Text,
+                    "bgImagePath=" + _bgImagePath
                 }, new UTF8Encoding(false));
             }
             catch { }

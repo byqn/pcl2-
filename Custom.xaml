@@ -8,7 +8,7 @@ Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource ColorBrush1}"
                    Text="打开后第一个页签就是「下载游戏」：选 Minecraft 版本 → 选加载器（Fabric / Forge / NeoForge / OptiFine）→ 点「开始下载」，和 PCL 原来的操作一样。" />
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,12" FontSize="11" Foreground="{DynamicResource ColorBrush2}"
-                   Text="原版文件按 Mojang 公布的 SHA-1 校验；官方源失败时自动尝试 BMCLAPI。不会启动游戏，也不会运行下载内容。" />
+                   Text="原版文件按 Mojang 公布的 SHA-1 校验；官方源失败时自动尝试 BMCLAPI。工具右上角有「换背景」，可选一张本地图片当壁纸。不会启动游戏，也不会运行下载内容。" />
         <local:MyButton Width="280" Height="38" HorizontalAlignment="Left" ColorType="Highlight"
                         Text="打开下载中心" EventType="打开文件"
                         EventData="cmd.exe|/c start &quot;&quot; &quot;{path}PCLDownloadRestore.exe&quot;"
