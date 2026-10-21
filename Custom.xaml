@@ -3,7 +3,7 @@ Plain Craft Launcher (PCL) 下载恢复工具（第三方扩展）
 装法：把 PCLDownloadRestore.exe 放进 PCL.exe 所在文件夹；本文件放到 PCL 目录下的 PCL\Custom.xaml，
 然后在 PCL 设置 → 个性化 → 主页里选择本地文件并刷新主页。仓库内 install.cmd 可自动完成。
 -->
-<local:MyCard Title="PCL 下载恢复工具（第三方扩展）" CanSwap="False" Margin="0,0,0,12">
+<local:MyCard Title="PCL 下载恢复工具" CanSwap="False" Margin="0,0,0,12">
     <StackPanel Margin="25,40,23,15">
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Foreground="{DynamicResource ColorBrush1}"
                    Text="PCL 2.99 起不再提供 Minecraft 下载。点下方按钮打开独立下载工具（exe）：可补齐 Mojang 原版文件、下载 Modrinth 项目、下载 HTTP(S) 直链文件。" />

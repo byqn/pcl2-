@@ -1,4 +1,4 @@
-// PCL 下载恢复工具（第三方扩展）v1.5.1
+// PCL 下载恢复工具 v1.5.2
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -24,7 +24,7 @@ namespace PclDownloadRestore
 {
     internal static class Program
     {
-        internal const string AppName = "PCL 下载恢复工具 v1.5.1（第三方扩展）";
+        internal const string AppName = "PCL 下载恢复工具";
         internal const string UserAgent = "PCL-Download-Restore/1.5.1";
 
         [STAThread]
@@ -831,7 +831,7 @@ namespace PclDownloadRestore
                 if (e.KeyCode == Keys.Enter && !_worker.IsBusy) { StartJob(JobKind.Search); e.SuppressKeyPress = true; }
             };
 
-            AppendLog("PCL 下载恢复工具已启动（v1.5.1）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.5.2）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -2021,7 +2021,7 @@ namespace PclDownloadRestore
                 if (vanilla == null) throw new Exception("Mojang 版本清单里找不到 Minecraft " + entry.McVersion + "。");
                 Report("准备原版 " + entry.McVersion + " 文件…");
                 InstallVanillaFiles(vanilla, gameRoot, true, token);
-                string instance = MakeInstanceName(gameRoot, "fabric-loader-" + entry.Version + "-" + entry.McVersion);
+                string instance = MakeInstanceName(gameRoot, entry.McVersion + "-Fabric_" + entry.Version);
                 Report("生成 Fabric 实例…");
                 InstallFabricLoader(gameRoot, entry.McVersion, entry.Version, instance, this, token);
                 LogLine("Fabric 实例已创建：" + instance);
@@ -2202,7 +2202,8 @@ namespace PclDownloadRestore
             return result;
         }
 
-        private static string MakeInstanceName(string gameRoot, string displayName)        {
+        private static string MakeInstanceName(string gameRoot, string displayName)
+        {
             var builder = new StringBuilder();
             foreach (char c in displayName.Trim())
             {
@@ -2210,7 +2211,7 @@ namespace PclDownloadRestore
             }
             string baseName = builder.ToString().Trim();
             if (baseName.Length == 0) baseName = "Modpack";
-            if (baseName.Length > 48) baseName = baseName.Substring(0, 48).Trim();
+            if (baseName.Length > 40) baseName = baseName.Substring(0, 40).Trim();
             string versionsRoot = Path.Combine(gameRoot, "versions");
             string candidate = baseName;
             int suffix = 2;
