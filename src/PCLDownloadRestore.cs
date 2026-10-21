@@ -1,4 +1,4 @@
-// PCL 下载恢复工具（第三方扩展）v1.1.0
+// PCL 下载恢复工具（第三方扩展）v1.4.0
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -23,7 +23,7 @@ namespace PclDownloadRestore
 {
     internal static class Program
     {
-        internal const string AppName = "PCL 下载恢复工具 v1.1.0（第三方扩展）";
+        internal const string AppName = "PCL 下载恢复工具 v1.4.0（第三方扩展）";
         internal const string UserAgent = "PCL-Download-Restore/1.1.0";
 
         [STAThread]
@@ -136,6 +136,19 @@ namespace PclDownloadRestore
             }
         }
 
+        public static IWebProxy Proxy = null;
+
+        public static void SetProxy(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address))
+            {
+                Proxy = null;
+                return;
+            }
+            try { Proxy = new WebProxy(address.Trim()); }
+            catch { Proxy = null; }
+        }
+
         public static void Download(string url, string destination, string expectedHash, string algo, long expectedSize, string kind, IProgressSink sink, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
@@ -155,41 +168,54 @@ namespace PclDownloadRestore
                 catch { }
             }
 
+            string part = destination + ".part";
             Exception lastError = null;
             foreach (string candidate in Candidates(url, kind))
             {
                 for (int attempt = 1; attempt <= 3; attempt++)
                 {
                     if (token.IsCancellationRequested) throw new OperationCanceledException(token);
-                    string temp = destination + ".part-" + Guid.NewGuid().ToString("N");
                     try
                     {
-                        sink.Log(string.Format("下载尝试 {0}/3：{1}", attempt, candidate));
-                        DownloadOnce(candidate, temp, sink, token);
-                        if (!File.Exists(temp)) throw new Exception("服务端未生成下载文件。");
-                        long length = new FileInfo(temp).Length;
+                        long resumeFrom = 0;
+                        if (File.Exists(part))
+                        {
+                            resumeFrom = new FileInfo(part).Length;
+                            if (expectedSize > 0 && resumeFrom >= expectedSize)
+                            {
+                                TryDelete(part);
+                                resumeFrom = 0;
+                            }
+                        }
+                        sink.Log(string.Format("下载尝试 {0}/3：{1}{2}", attempt, candidate,
+                            resumeFrom > 0 ? string.Format("（从 {0} 字节续传）", resumeFrom) : ""));
+                        DownloadOnce(candidate, part, resumeFrom, sink, token);
+                        if (!File.Exists(part)) throw new Exception("服务端未生成下载文件。");
+                        long length = new FileInfo(part).Length;
                         if (expectedSize > 0 && length != expectedSize)
                             throw new Exception(string.Format("文件大小不符：预期 {0} 字节，实际 {1} 字节。", expectedSize, length));
                         if (!string.IsNullOrEmpty(expectedHash))
                         {
-                            string actual = HashFile(temp, algo);
+                            string actual = HashFile(part, algo);
                             if (!string.Equals(actual, expectedHash, StringComparison.OrdinalIgnoreCase))
-                                throw new Exception(algo + " 校验失败。");
+                            {
+                                TryDelete(part);
+                                throw new Exception(algo + " 校验失败，已删除损坏的部分文件。");
+                            }
                         }
                         if (File.Exists(destination)) File.Delete(destination);
-                        File.Move(temp, destination);
+                        File.Move(part, destination);
                         return;
                     }
                     catch (OperationCanceledException)
                     {
-                        TryDelete(temp);
                         throw;
                     }
                     catch (Exception ex)
                     {
                         lastError = ex;
-                        TryDelete(temp);
                         sink.Log("失败：" + ex.Message);
+                        if (token.IsCancellationRequested) throw new OperationCanceledException(token);
                     }
                 }
             }
@@ -201,42 +227,44 @@ namespace PclDownloadRestore
             try { if (File.Exists(path)) File.Delete(path); } catch { }
         }
 
-        private static void DownloadOnce(string url, string temp, IProgressSink sink, CancellationToken token)
+        private static void DownloadOnce(string url, string partPath, long resumeFrom, IProgressSink sink, CancellationToken token)
         {
-            using (var wc = new WebClient())
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.UserAgent = Program.UserAgent;
+            request.Timeout = 30000;
+            request.ReadWriteTimeout = 60000;
+            if (Proxy != null) request.Proxy = Proxy;
+            if (resumeFrom > 0) request.AddRange(resumeFrom);
+
+            using (var response = (HttpWebResponse)request.GetResponse())
             {
-                wc.Headers.Add("User-Agent", Program.UserAgent);
-                var done = new ManualResetEventSlim(false);
-                Exception error = null;
-                bool cancelled = false;
-                int lastPercent = -1;
-                wc.DownloadProgressChanged += delegate(object s, DownloadProgressChangedEventArgs e)
+                bool append = resumeFrom > 0 && response.StatusCode == HttpStatusCode.PartialContent;
+                long baseOffset = append ? resumeFrom : 0;
+                long total = response.ContentLength > 0 ? baseOffset + response.ContentLength : 0;
+                using (var stream = response.GetResponseStream())
+                using (var file = new FileStream(partPath, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read))
                 {
-                    // 并发下载时多个文件会同时上报，按 10% 档位节流，避免刷爆界面。
-                    int bucket = e.ProgressPercentage / 10;
-                    if (bucket == lastPercent) return;
-                    lastPercent = bucket;
-                    sink.Progress(e.ProgressPercentage, 100);
-                };
-                wc.DownloadFileCompleted += delegate(object s, AsyncCompletedEventArgs e)
-                {
-                    if (e.Cancelled) cancelled = true;
-                    else if (e.Error != null) error = e.Error;
-                    done.Set();
-                };
-                using (token.Register(delegate { try { wc.CancelAsync(); } catch { } }))
-                {
-                    wc.DownloadFileAsync(new Uri(url), temp);
-                    while (!done.Wait(100))
+                    byte[] buffer = new byte[81920];
+                    long received = baseOffset;
+                    int lastBucket = -1;
+                    int read;
+                    while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        if (token.IsCancellationRequested)
+                        token.ThrowIfCancellationRequested();
+                        file.Write(buffer, 0, read);
+                        received += read;
+                        if (total > 0)
                         {
-                            try { wc.CancelAsync(); } catch { }
+                            int percent = (int)(received * 100 / total);
+                            int bucket = percent / 10;
+                            if (bucket != lastBucket)
+                            {
+                                lastBucket = bucket;
+                                sink.Progress(percent, 100);
+                            }
                         }
                     }
                 }
-                if (cancelled || token.IsCancellationRequested) throw new OperationCanceledException(token);
-                if (error != null) throw error;
             }
         }
 
@@ -249,6 +277,7 @@ namespace PclDownloadRestore
                 {
                     using (var wc = new WebClient())
                     {
+                        if (Proxy != null) wc.Proxy = Proxy;
                         wc.Headers.Add("User-Agent", Program.UserAgent);
                         wc.Headers.Add("Accept", "application/json");
                         wc.Encoding = Encoding.UTF8;
@@ -378,6 +407,7 @@ namespace PclDownloadRestore
     {
         private readonly TextBox _gameRoot;
         private readonly TextBox _outputDir;
+        private readonly TextBox _proxyBox;
         private readonly ComboBox _versionBox;
         private readonly CheckBox _includeAssets;
         private readonly Button _loadVersions;
@@ -585,17 +615,17 @@ namespace PclDownloadRestore
 
             var outputLabel = new Label();
             outputLabel.Text = "Modrinth / 直接下载保存到";
-            outputLabel.SetBounds(20, 540, 260, 22);
+            outputLabel.SetBounds(20, 528, 260, 22);
             Controls.Add(outputLabel);
 
             _outputDir = new TextBox();
             _outputDir.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "PCL-Download-Restore");
-            _outputDir.SetBounds(20, 562, 700, 26);
+            _outputDir.SetBounds(20, 550, 700, 26);
             Controls.Add(_outputDir);
 
             var browseOutput = new Button();
             browseOutput.Text = "选择…";
-            browseOutput.SetBounds(730, 561, 120, 28);
+            browseOutput.SetBounds(730, 549, 120, 28);
             Controls.Add(browseOutput);
             browseOutput.Click += delegate
             {
@@ -607,19 +637,29 @@ namespace PclDownloadRestore
                 }
             };
 
+            var proxyLabel = new Label();
+            proxyLabel.Text = "代理（可选，留空为直连，例如 http://127.0.0.1:7890）";
+            proxyLabel.SetBounds(20, 586, 520, 22);
+            Controls.Add(proxyLabel);
+
+            _proxyBox = new TextBox();
+            _proxyBox.SetBounds(20, 608, 700, 26);
+            Controls.Add(_proxyBox);
+            _proxyBox.TextChanged += delegate { Engine.SetProxy(_proxyBox.Text); };
+
             _status = new Label();
             _status.Text = "就绪。";
-            _status.SetBounds(20, 596, 700, 22);
+            _status.SetBounds(20, 646, 700, 22);
             Controls.Add(_status);
 
             _progress = new ProgressBar();
-            _progress.SetBounds(20, 620, 700, 16);
+            _progress.SetBounds(20, 670, 700, 16);
             Controls.Add(_progress);
 
             _cancelButton = new Button();
             _cancelButton.Text = "取消";
             _cancelButton.Enabled = false;
-            _cancelButton.SetBounds(730, 612, 120, 30);
+            _cancelButton.SetBounds(730, 662, 120, 30);
             Controls.Add(_cancelButton);
 
             _log = new TextBox();
@@ -627,7 +667,7 @@ namespace PclDownloadRestore
             _log.ReadOnly = true;
             _log.ScrollBars = ScrollBars.Vertical;
             _log.Font = new Font("Consolas", 8.5F);
-            _log.SetBounds(20, 644, 830, 128);
+            _log.SetBounds(20, 694, 830, 80);
             Controls.Add(_log);
 
             AcceptButton = null;
@@ -655,7 +695,7 @@ namespace PclDownloadRestore
                 if (e.KeyCode == Keys.Enter && !_worker.IsBusy) { StartJob(JobKind.Search); e.SuppressKeyPress = true; }
             };
 
-            AppendLog("PCL 下载恢复工具已启动（v1.3.0）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.4.0）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -682,6 +722,7 @@ namespace PclDownloadRestore
                     if (value.Length == 0) continue;
                     if (key == "gameRoot" && Directory.Exists(value)) _gameRoot.Text = value;
                     else if (key == "outputDir") _outputDir.Text = value;
+                    else if (key == "proxy") { _proxyBox.Text = value; Engine.SetProxy(value); }
                 }
             }
             catch { }
@@ -694,7 +735,8 @@ namespace PclDownloadRestore
                 File.WriteAllLines(SettingsFile, new string[]
                 {
                     "gameRoot=" + _gameRoot.Text,
-                    "outputDir=" + _outputDir.Text
+                    "outputDir=" + _outputDir.Text,
+                    "proxy=" + _proxyBox.Text
                 }, new UTF8Encoding(false));
             }
             catch { }
@@ -755,6 +797,41 @@ namespace PclDownloadRestore
                         if (dialog.ShowDialog(this) != DialogResult.OK) throw new Exception("已取消。");
                         string file = dialog.FileName;
                         RequireDirectory(_gameRoot.Text);
+
+                        var index = ReadMrpackIndex(file);
+                        var deps = index.ContainsKey("dependencies") ? Engine.Obj(index["dependencies"]) : null;
+                        string mcVersion = deps != null && deps.ContainsKey("minecraft") ? Engine.Str(deps["minecraft"]) : "未知";
+                        string loaderText = "原版";
+                        if (deps != null)
+                        {
+                            if (deps.ContainsKey("fabric-loader")) loaderText = "Fabric " + Engine.Str(deps["fabric-loader"]);
+                            else if (deps.ContainsKey("quilt-loader")) loaderText = "Quilt " + Engine.Str(deps["quilt-loader"]);
+                            else if (deps.ContainsKey("forge")) loaderText = "Forge " + Engine.Str(deps["forge"]) + "（安装时调用官方安装器，需 Java）";
+                            else if (deps.ContainsKey("neoforge")) loaderText = "NeoForge " + Engine.Str(deps["neoforge"]) + "（安装时调用官方安装器，需 Java）";
+                        }
+                        var files = Engine.Arr(index.ContainsKey("files") ? index["files"] : null);
+                        long totalSize = 0;
+                        int fileCount = 0;
+                        if (files != null)
+                        {
+                            foreach (object rawFile in files)
+                            {
+                                var item = Engine.Obj(rawFile);
+                                if (item == null) continue;
+                                fileCount++;
+                                totalSize += Engine.Long(item.ContainsKey("fileSize") ? item["fileSize"] : null);
+                            }
+                        }
+                        string packName = Engine.Str(index.ContainsKey("name") ? index["name"] : null);
+                        string message = "整合包：" + (string.IsNullOrEmpty(packName) ? "(未命名)" : packName) +
+                                         "\r\nMinecraft：" + mcVersion +
+                                         "\r\n加载器：" + loaderText +
+                                         "\r\n文件数：" + fileCount +
+                                         "\r\n总大小：" + (totalSize / 1024 / 1024) + " MB" +
+                                         "\r\n\r\n将安装到：" + Path.Combine(_gameRoot.Text, "versions") +
+                                         "\r\n\r\n继续安装吗？";
+                        if (MessageBox.Show(this, message, "确认安装整合包", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK)
+                            throw new Exception("已取消。");
                         return file;
                     }
                 }
@@ -963,6 +1040,7 @@ namespace PclDownloadRestore
                 "本工具不会启动游戏。请在 PCL 中刷新版本列表；首次启动仍需正版账号验证。",
                 Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             Report("版本 " + entry.Id + " 已下载完成。");
+            OpenFolder(Path.Combine(_gameRoot.Text, "versions", entry.Id));
         }
 
         private void InstallVanillaFiles(VersionEntry entry, string root, bool includeAssets, CancellationToken token)
@@ -1264,6 +1342,7 @@ namespace PclDownloadRestore
                     Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             Report("下载完成。");
+            OpenFolder(folder);
         }
 
         private static bool PrimaryFlag(Dictionary<string, object> file)
@@ -1305,9 +1384,176 @@ namespace PclDownloadRestore
             LogLine("已保存：" + destination);
             MessageBox.Show(this, "下载完成：" + Environment.NewLine + destination, Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             Report("下载完成。");
+            OpenFolder(folder);
         }
 
         // ===== 整合包安装（.mrpack）=====
+
+        private static Dictionary<string, object> ReadMrpackIndex(string path)
+        {
+            using (var zip = ZipFile.OpenRead(path))
+            {
+                foreach (ZipArchiveEntry entry in zip.Entries)
+                {
+                    if (entry.FullName == "modrinth.index.json")
+                    {
+                        using (var reader = new StreamReader(entry.Open(), Encoding.UTF8))
+                        {
+                            return Engine.ParseObject(reader.ReadToEnd());
+                        }
+                    }
+                }
+            }
+            throw new Exception("不是 Modrinth 整合包：缺少 modrinth.index.json。");
+        }
+
+        private void InstallForgeLike(string gameRoot, string mcVersion, string loaderVersion, bool neoForge, CancellationToken token)
+        {
+            string java = FindJava();
+            if (string.IsNullOrEmpty(java))
+                throw new Exception("找不到 Java。安装 Forge / NeoForge 需要 Java 运行时：\r\n" +
+                                    "请安装 JDK 17+，或把 java.exe 加入 PATH / 设置 JAVA_HOME 后重试。");
+
+            string installerUrl;
+            if (neoForge)
+                installerUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/" + loaderVersion + "/neoforge-" + loaderVersion + "-installer.jar";
+            else
+                installerUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/" + mcVersion + "-" + loaderVersion + "/forge-" + mcVersion + "-" + loaderVersion + "-installer.jar";
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "pcl-forge-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string installer = Path.Combine(tempDir, "installer.jar");
+                Report("下载 " + (neoForge ? "NeoForge" : "Forge") + " 安装器…");
+                Engine.Download(installerUrl, installer, null, "SHA1", 0, "direct", this, token);
+                Report("运行安装器（需要联网下载库，可能要几分钟）…");
+                RunJavaInstaller(java, installer, gameRoot, token);
+            }
+            finally
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+
+        private void RunJavaInstaller(string java, string installer, string gameRoot, CancellationToken token)
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo();
+            startInfo.FileName = java;
+            startInfo.Arguments = "-jar \"" + installer + "\" --installClient \"" + gameRoot + "\"";
+            startInfo.UseShellExecute = false;
+            startInfo.CreateNoWindow = true;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
+            using (var process = new System.Diagnostics.Process())
+            {
+                process.StartInfo = startInfo;
+                process.OutputDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e)
+                {
+                    if (!string.IsNullOrEmpty(e.Data)) LogLine("[安装器] " + e.Data);
+                };
+                process.ErrorDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e)
+                {
+                    if (!string.IsNullOrEmpty(e.Data)) LogLine("[安装器] " + e.Data);
+                };
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                using (token.Register(delegate { try { if (!process.HasExited) process.Kill(); } catch { } }))
+                {
+                    while (!process.WaitForExit(500))
+                    {
+                        token.ThrowIfCancellationRequested();
+                    }
+                }
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new Exception("安装器退出码 " + process.ExitCode + "。常见原因：Java 版本不匹配、网络被拦截，或该版本安装器不支持 --installClient。");
+            }
+        }
+
+        private static string FindJava()
+        {
+            string path = Environment.GetEnvironmentVariable("PATH");
+            if (!string.IsNullOrEmpty(path))
+            {
+                foreach (string dir in path.Split(';'))
+                {
+                    if (string.IsNullOrWhiteSpace(dir)) continue;
+                    try
+                    {
+                        string exe = Path.Combine(dir.Trim(), "java.exe");
+                        if (File.Exists(exe)) return exe;
+                    }
+                    catch { }
+                }
+            }
+            string home = Environment.GetEnvironmentVariable("JAVA_HOME");
+            if (!string.IsNullOrEmpty(home))
+            {
+                try
+                {
+                    string exe = Path.Combine(home, "bin", "java.exe");
+                    if (File.Exists(exe)) return exe;
+                }
+                catch { }
+            }
+            string[] roots = new string[]
+            {
+                @"C:\Program Files\Java",
+                @"C:\Program Files\Eclipse Adoptium",
+                @"C:\Program Files\Microsoft\jdk",
+                @"C:\Program Files\Zulu",
+                @"C:\Program Files\BellSoft",
+                @"C:\Program Files\Amazon Corretto",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".jdks")
+            };
+            foreach (string root in roots)
+            {
+                if (!Directory.Exists(root)) continue;
+                try
+                {
+                    foreach (string dir in Directory.GetDirectories(root))
+                    {
+                        string exe = Path.Combine(dir, "bin", "java.exe");
+                        if (File.Exists(exe)) return exe;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static string FindLoaderVersionDir(string gameRoot, string mcVersion, string loaderVersion, bool neo)
+        {
+            string versionsRoot = Path.Combine(gameRoot, "versions");
+            if (!Directory.Exists(versionsRoot)) return null;
+            foreach (string dir in Directory.GetDirectories(versionsRoot))
+            {
+                string name = Path.GetFileName(dir);
+                if (neo)
+                {
+                    if (name.IndexOf("neoforge", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        name.IndexOf(loaderVersion, StringComparison.OrdinalIgnoreCase) >= 0) return name;
+                }
+                else
+                {
+                    if (name.IndexOf("forge", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        name.IndexOf(mcVersion, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        name.IndexOf(loaderVersion, StringComparison.OrdinalIgnoreCase) >= 0) return name;
+                }
+            }
+            return null;
+        }
+
+        private static void OpenFolder(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path)) System.Diagnostics.Process.Start("explorer.exe", "\"" + path + "\"");
+            }
+            catch { }
+        }
 
         private void DoInstallModpack(string archivePath, CancellationToken token)
         {
@@ -1334,10 +1580,6 @@ namespace PclDownloadRestore
                 string quiltLoader = deps.ContainsKey("quilt-loader") ? Engine.Str(deps["quilt-loader"]) : null;
                 string forgeVersion = deps.ContainsKey("forge") ? Engine.Str(deps["forge"]) : null;
                 string neoForgeVersion = deps.ContainsKey("neoforge") ? Engine.Str(deps["neoforge"]) : null;
-
-                if (!string.IsNullOrEmpty(forgeVersion) || !string.IsNullOrEmpty(neoForgeVersion))
-                    throw new Exception("该整合包需要 Forge 或 NeoForge。它们必须运行官方安装器生成启动配置，本工具目前只支持原版、Fabric、Quilt 整合包。\r\n\r\n" +
-                                        "变通办法：先用官方安装器装好对应加载器版本，再把整合包 mods/ 里的文件复制进去。");
 
                 string displayName = Engine.Str(index.ContainsKey("name") ? index["name"] : null);
                 if (string.IsNullOrEmpty(displayName)) displayName = "Modpack";
@@ -1396,6 +1638,24 @@ namespace PclDownloadRestore
                     profile["inheritsFrom"] = mcVersion;
                     WriteJsonFile(profile, versionJson);
                 }
+                else if (!string.IsNullOrEmpty(forgeVersion) || !string.IsNullOrEmpty(neoForgeVersion))
+                {
+                    bool isNeo = !string.IsNullOrEmpty(neoForgeVersion);
+                    string loaderVersion = isNeo ? neoForgeVersion : forgeVersion;
+                    LogLine("检测到 " + (isNeo ? "NeoForge " : "Forge ") + loaderVersion + "，将调用官方安装器。");
+                    InstallForgeLike(gameRoot, mcVersion, loaderVersion, isNeo, token);
+                    string loaderDir = FindLoaderVersionDir(gameRoot, mcVersion, loaderVersion, isNeo);
+                    if (string.IsNullOrEmpty(loaderDir))
+                        throw new Exception("安装器已结束，但没有在 versions 下找到生成的版本目录。请打开 PCL 检查是否安装成功。");
+                    var stub = new Dictionary<string, object>();
+                    stub["id"] = instance;
+                    stub["inheritsFrom"] = loaderDir;
+                    stub["type"] = "release";
+                    string now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+                    stub["time"] = now;
+                    stub["releaseTime"] = now;
+                    WriteJsonFile(stub, versionJson);
+                }
                 else
                 {
                     var stub = new Dictionary<string, object>();
@@ -1445,6 +1705,7 @@ namespace PclDownloadRestore
                     "回到 PCL 刷新版本列表，就能看到这个实例。\r\n" +
                     "首次启动仍需正版账号验证；若 PCL 提示缺少资源，请回到「原版 Minecraft」页补齐同一版本。",
                     Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                OpenFolder(instanceDir);
             }
             finally
             {

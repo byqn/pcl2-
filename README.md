@@ -18,9 +18,10 @@
 
 ## 功能
 
-- **原版 Minecraft**：读取 Mojang 公开版本清单，下载指定版本 JSON、客户端 JAR、适用于 Windows 的库/原生库、日志配置，以及可选的 Assets。对有元数据校验值的文件验证 SHA-1 和文件大小；官方源失败时按 PCL 上游公开的域名映射尝试 BMCLAPI，并有限重试。**依赖与资源按 4 线程并发下载**，同时自动记住上次选用的游戏目录与保存目录（`PCLDownloadRestore.ini`）。
+- **原版 Minecraft**：读取 Mojang 公开版本清单，下载指定版本 JSON、客户端 JAR、适用于 Windows 的库/原生库、日志配置，以及可选的 Assets。对有元数据校验值的文件验证 SHA-1 和文件大小；官方源失败时按 PCL 上游公开的域名映射尝试 BMCLAPI，并有限重试。**依赖与资源按 4 线程并发下载**，支持 **HTTP Range 断点续传**（中断后保留 `.part`，下次从断点继续），并自动记住上次选用的游戏目录、保存目录与代理（`PCLDownloadRestore.ini`）。
 - **Modrinth**：搜索整合包、Mod、资源包和光影包；可按游戏版本及加载器筛选；下载 Modrinth 发布文件并验证 SHA-512。
-- **整合包安装**：在 Modrinth 页签点「安装 .mrpack 整合包」，选择 `.mrpack` 后会自动：下载对应原版文件 → 读取 Fabric / Quilt 加载器配置并下载其库 → 下载整合包内所有文件（SHA-512 校验）→ 复制 `overrides/` → 生成 `versions/<实例名>/<实例名>.json`。完成后 PCL 刷新版本列表即可看到新实例。
+- **整合包安装**：在 Modrinth 页签点「安装 .mrpack 整合包」，**先弹出预览**（名称 / Minecraft 版本 / 加载器 / 文件数 / 总大小），确认后才开始。安装流程：下载对应原版文件 → **Fabric / Quilt** 读取官方 meta 下载加载器库，**Forge / NeoForge** 调用官方安装器（需本机有 Java）→ 下载整合包内所有文件（SHA-512 校验）→ 复制 `overrides/` → 生成 `versions/<实例名>/<实例名>.json`。完成后自动打开实例目录，PCL 刷新版本列表即可看到。
+- **代理**：底部可填 `http://127.0.0.1:7890` 之类的 HTTP 代理，对所有请求生效，留空即直连。
 - **直接下载**：对用户明确输入的 HTTP/HTTPS 链接下载文件。HTTP 会显示风险提示；已存在的文件不会被静默覆盖。
 - 不收集账号凭据、不请求 Microsoft/Mojang 令牌、不启动游戏、不运行下载的文件。
 
@@ -50,7 +51,7 @@
 
 - 点主页的“打开下载中心”会启动 `PCLDownloadRestore.exe`。它不修改系统执行策略、不需要管理员权限。
 - 原版下载先确认“Minecraft 游戏目录”。应选择 PCL 当前实例实际使用的游戏根目录；默认值 `%APPDATA%\.minecraft` 不一定是你的 PCL 目录。下载后在 PCL 刷新版本列表。
-- 整合包安装只支持**原版、Fabric、Quilt**；Forge / NeoForge 的安装器会写配置、跑 processor，本工具不做这一步，会直接报错并提示替代方案。
+- 整合包安装：**原版、Fabric、Quilt** 由本工具直接完成；**Forge / NeoForge** 会下载并调用官方安装器（`--installClient`），需要本机已安装 **Java（建议 17+）** 且能联网拉取库。个别旧版安装器不支持该命令行参数，失败时请改用官方安装器手动安装。
 - PCL 2.99 官方版关闭了自带整合包导入，本工具不修改 PCL，只是自己在 `versions/` 下生成实例；PCL 刷新版本列表后按普通版本对待。
 
 ## 重要限制
@@ -78,4 +79,4 @@
 
 本工具独立实现下载逻辑，只参考 PCL 已公开的自定义事件说明、下载源 URL 映射和许可指南，没有复制 PCL 源码。PCL 项目作者为龙腾猫跃；上游仓库：<https://github.com/Meloong-Git/PCL>；赞助链接：<https://meloong.com/afd/a/LTCat>；上游许可/合理使用指南：<https://github.com/Meloong-Git/PCL/blob/main/LICENCE>。
 
-本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.3.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
+本项目是涉及 Minecraft 下载功能的第三方扩展，名称明确标注 PCL 第三方属性。**本仓库为公开仓库，完整源码（`src/PCLDownloadRestore.cs`、`src/Setup.cs`、`Custom.xaml`）已随 MIT 许可公开，可直接查看、修改与再分发；`v1.4.0` 压缩包只是便于安装的打包副本，不是唯一分发形式。** 公开分发时请继续逐项遵守 PCL 仓库当前的《合理使用指南》（署名、第三方命名、赞助劝导等），并注意 PCL 上游自身并非 MIT 许可。
