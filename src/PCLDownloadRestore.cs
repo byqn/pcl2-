@@ -1,4 +1,4 @@
-// PCL 下载恢复工具 v1.6.2
+// PCL 下载恢复工具 v1.6.3
 // 编译：csc /target:winexe /codepage:65001 /out:dist\PCLDownloadRestore.exe src\PCLDownloadRestore.cs
 // 目标框架：.NET Framework 3.5+（Windows 10/11 自带 4.8 可直接运行）
 // 本程序只下载文件，不启动游戏、不执行下载内容、不修改 PCL。
@@ -513,6 +513,8 @@ namespace PclDownloadRestore
         private readonly ComboBox _dlLoaderVersionBox;
         private readonly Button _dlStartBtn;
         private string _bgImagePath;
+        private readonly TrackBar _opacitySlider;
+        private readonly Label _opacityLabel;
         private readonly Label _status;
         private readonly ProgressBar _progress;
         private readonly Button _cancelButton;
@@ -546,6 +548,22 @@ namespace PclDownloadRestore
             bgButton.SetBounds(748, 15, 110, 30);
             Controls.Add(bgButton);
             bgButton.Click += delegate { ChangeBackground(); };
+
+            _opacityLabel = new Label();
+            _opacityLabel.Text = "100%";
+            _opacityLabel.BackColor = Color.Transparent;
+            _opacityLabel.ForeColor = Color.FromArgb(60, 80, 110);
+            _opacityLabel.SetBounds(500, 18, 50, 22);
+            Controls.Add(_opacityLabel);
+
+            _opacitySlider = new TrackBar();
+            _opacitySlider.Minimum = 30;
+            _opacitySlider.Maximum = 100;
+            _opacitySlider.TickFrequency = 10;
+            _opacitySlider.Value = 100;
+            _opacitySlider.SetBounds(548, 10, 180, 40);
+            Controls.Add(_opacitySlider);
+            _opacitySlider.Scroll += delegate { ApplyOpacity(_opacitySlider.Value); };
 
             var rootLabel = new Label();
             rootLabel.Text = "Minecraft 游戏目录（应为包含 versions / libraries / assets 的实例根目录）";
@@ -931,7 +949,7 @@ namespace PclDownloadRestore
             }
             catch { }
 
-            AppendLog("PCL 下载恢复工具已启动（v1.6.2）。");
+            AppendLog("PCL 下载恢复工具已启动（v1.6.3）。");
             AppendLog("本程序不启动游戏、不执行下载内容，也不需要 Microsoft/Mojang 登录令牌。");
             AppendLog("原版下载会写入所选游戏目录，建议先备份现有实例。");
 
@@ -984,6 +1002,14 @@ namespace PclDownloadRestore
         private static string SettingsFile
         {
             get { return Path.Combine(Application.StartupPath, "PCLDownloadRestore.ini"); }
+        }
+
+        private void ApplyOpacity(int percent)
+        {
+            if (percent < 30) percent = 30;
+            if (percent > 100) percent = 100;
+            Opacity = percent / 100.0;
+            if (_opacityLabel != null) _opacityLabel.Text = percent + "%";
         }
 
         private void ApplyBackground(string path)
@@ -1099,6 +1125,15 @@ namespace PclDownloadRestore
                     else if (key == "outputDir") _outputDir.Text = value.TrimEnd('\\', '/');
                     else if (key == "proxy") { _proxyBox.Text = value; Engine.SetProxy(value); }
                     else if (key == "bgImagePath") { _bgImagePath = value; ApplyBackground(value); }
+                    else if (key == "opacity")
+                    {
+                        int percent;
+                        if (int.TryParse(value, out percent))
+                        {
+                            _opacitySlider.Value = Math.Max(30, Math.Min(100, percent));
+                            ApplyOpacity(_opacitySlider.Value);
+                        }
+                    }
                 }
             }
             catch { }
@@ -1113,7 +1148,8 @@ namespace PclDownloadRestore
                     "gameRoot=" + _gameRoot.Text.TrimEnd('\\', '/'),
                     "outputDir=" + _outputDir.Text.TrimEnd('\\', '/'),
                     "proxy=" + _proxyBox.Text,
-                    "bgImagePath=" + _bgImagePath
+                    "bgImagePath=" + _bgImagePath,
+                    "opacity=" + _opacitySlider.Value
                 }, new UTF8Encoding(false));
             }
             catch { }
